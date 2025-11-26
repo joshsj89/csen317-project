@@ -1,0 +1,77 @@
+Initial network:
+Chord network (m=8, ring=256)
+Nodes:
+  node-B (id=84) succ=102 pred=143
+    fingers: 102,102,102,102,102,143,84,84
+  node-D (id=102) succ=107 pred=84
+    fingers: 107,107,107,143,143,143,84,84
+  node-C (id=107) succ=143 pred=102
+    fingers: 143,143,143,143,143,143,84,84
+  node-A (id=143) succ=84 pred=107
+    fingers: 84,84,84,84,84,84,84,84
+
+After inserting files:
+Chord network (m=8, ring=256)
+Nodes:
+  node-B (id=84) succ=102 pred=143
+    fingers: 102,102,102,102,102,143,84,84
+    data:
+      notes.md -> some notes
+      video.mp4 -> video-bytes
+      file1.txt -> contents-1
+  node-D (id=102) succ=107 pred=84
+    fingers: 107,107,107,143,143,143,84,84
+    data:
+      image.png -> png-bytes
+  node-C (id=107) succ=143 pred=102
+    fingers: 143,143,143,143,143,143,84,84
+  node-A (id=143) succ=84 pred=107
+    fingers: 84,84,84,84,84,84,84,84
+
+Lookup simulation:
+  start=143 lookup(file1.txt, id=170) -> owner=84 hops=1
+  start=84 lookup(file1.txt, id=170) -> owner=84 hops=2
+  start=107 lookup(file1.txt, id=170) -> owner=84 hops=2
+  start=102 lookup(file1.txt, id=170) -> owner=84 hops=2
+    final owner for file1.txt (id=170) = 84 value_present=1
+  start=143 lookup(image.png, id=89) -> owner=102 hops=2
+  start=84 lookup(image.png, id=89) -> owner=102 hops=1
+  start=107 lookup(image.png, id=89) -> owner=102 hops=2
+  start=102 lookup(image.png, id=89) -> owner=102 hops=2
+    final owner for image.png (id=89) = 102 value_present=1
+  start=143 lookup(video.mp4, id=178) -> owner=84 hops=1
+  start=84 lookup(video.mp4, id=178) -> owner=84 hops=2
+  start=107 lookup(video.mp4, id=178) -> owner=84 hops=2
+  start=102 lookup(video.mp4, id=178) -> owner=84 hops=2
+    final owner for video.mp4 (id=178) = 84 value_present=1
+  start=143 lookup(notes.md, id=38) -> owner=84 hops=1
+  start=84 lookup(notes.md, id=38) -> owner=84 hops=2
+  start=107 lookup(notes.md, id=38) -> owner=84 hops=2
+  start=102 lookup(notes.md, id=38) -> owner=84 hops=2
+    final owner for notes.md (id=38) = 84 value_present=1
+
+Adding a new node 'node-E' and recomputing tables:
+Chord network (m=8, ring=256)
+Nodes:
+  node-E (id=78) succ=84 pred=143
+    fingers: 84,84,84,102,102,143,143,78
+  node-B (id=84) succ=102 pred=78
+    fingers: 102,102,102,102,102,143,78,78
+    data:
+      notes.md -> some notes
+      video.mp4 -> video-bytes
+      file1.txt -> contents-1
+  node-D (id=102) succ=107 pred=84
+    fingers: 107,107,107,143,143,143,78,78
+    data:
+      image.png -> png-bytes
+  node-C (id=107) succ=143 pred=102
+    fingers: 143,143,143,143,143,143,78,78
+  node-A (id=143) succ=78 pred=107
+    fingers: 78,78,78,78,78,78,78,78
+
+File ownership after join:
+  file1.txt -> owner=78 present=0
+  image.png -> owner=102 present=1
+  video.mp4 -> owner=78 present=0
+  notes.md -> owner=78 present=0
