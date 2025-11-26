@@ -55,12 +55,12 @@ Chord network (m=8, ring=256)
 Nodes:
   node-E (id=78) succ=84 pred=143
     fingers: 84,84,84,102,102,143,143,78
+    data:
+      file1.txt -> contents-1
+      video.mp4 -> video-bytes
+      notes.md -> some notes
   node-B (id=84) succ=102 pred=78
     fingers: 102,102,102,102,102,143,78,78
-    data:
-      notes.md -> some notes
-      video.mp4 -> video-bytes
-      file1.txt -> contents-1
   node-D (id=102) succ=107 pred=84
     fingers: 107,107,107,143,143,143,78,78
     data:
@@ -71,7 +71,7 @@ Nodes:
     fingers: 78,78,78,78,78,78,78,78
 
 File ownership after join:
-  file1.txt -> owner=78 present=0
+  file1.txt -> owner=78 present=1
   image.png -> owner=102 present=1
-  video.mp4 -> owner=78 present=0
-  notes.md -> owner=78 present=0
+  video.mp4 -> owner=78 present=1
+  notes.md -> owner=78 present=1

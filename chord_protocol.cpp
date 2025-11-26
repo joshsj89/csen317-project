@@ -56,15 +56,21 @@ struct ChordNetwork // manages nodes and routing
             tname = name + "#" + to_string(attempt++);
             id = hash_str(tname);
         }
+
         nodes.emplace(id, Node(id, tname, m));
+
         recompute_finger_tables();
+        stabilize_all();
+
         return id;
     }
 
     void remove_node(u64 id) // Removes node from the ring and recomputes finger tables
     {
         nodes.erase(id);
+
         recompute_finger_tables();
+        stabilize_all();
     }
 
     // find the successor node id for given identifier (the first node with id >= key, wrapping)
@@ -215,6 +221,123 @@ struct ChordNetwork // manages nodes and routing
         // not found
         return {string(), hops};
     }
+
+    /***************** Stabilization & Rebalancing *************************/
+
+    // Stabilize a given node
+    void stabilize_node(u64 node_id)
+    {
+        if (!has_node(node_id))
+            return;
+
+        Node &n = nodes.at(node_id);
+        u64 succ_id = n.successor;
+
+        if (!has_node(succ_id))
+            return;
+
+        Node &succ = nodes.at(succ_id);
+
+        // Check if successor's predecessor is a better successor
+        u64 succ_pred_id = succ.predecessor;
+        if (has_node(succ_pred_id) && in_interval_open(n.id, succ_id, succ_pred_id))
+            n.successor = succ_pred_id; // better successor found
+
+        // Notify successor that n might be its predecessor
+        if (has_node(n.successor))
+        {
+            Node &new_succ = nodes.at(n.successor);
+            if (new_succ.predecessor != new_succ.id || in_interval_open(new_succ.predecessor, new_succ.id, n.id))
+                new_succ.predecessor = n.id;
+        }
+    }
+
+    // Refresh finger entries for a given node
+    void refresh_fingers_node(u64 node_id)
+    {
+        if (!has_node(node_id))
+            return;
+
+        Node &n = nodes.at(node_id);
+        for (int k = 0; k < m; ++k)
+        {
+            u64 start = (n.id + (1ULL << k)) % ring_size;
+            n.finger[k] = find_successor_id(start);
+        }
+    }
+
+    // Rebalance files among nodes after stabilization
+    // Time Complexity: O(N * F * log N) where N = number of nodes, F = average files per node
+    void rebalance_files()
+    {
+        if (nodes.empty())
+            return;
+
+        map<u64, vector<pair<string, string>>> moves;
+
+        for (auto &p : nodes)
+        {
+            u64 node_id = p.first;
+            Node & node = p.second;
+
+            vector<string> to_remove; // keys that don't belong to this node anymore
+            to_remove.reserve(node.data.size());
+
+            for (auto &kv : node.data)
+            {
+                const string &key = kv.first;
+                u64 k = hash_str(key);
+                u64 owner_id = find_successor_id(k);
+                if (owner_id != node_id)
+                {
+                    moves[owner_id].emplace_back(key, kv.second);
+                    to_remove.push_back(key);
+                }
+            }
+
+            // Remove moved keys from current node
+            for (const string &key : to_remove)
+                node.data.erase(key);
+        }
+
+        // Apply the moves
+        for (auto &e : moves)
+        {
+            u64 owner_id = e.first;
+            
+            if (!has_node(owner_id)) // owner node might have been removed
+                continue;
+
+            Node &owner = nodes.at(owner_id);
+            for (auto &kv : e.second)
+                owner.data[kv.first] = kv.second;
+        }
+    }
+
+    // Stabilize all nodes and rebalance files
+    void stabilize_all()
+    {
+        if (nodes.empty())
+            return;
+
+        vector<u64> node_ids;
+        node_ids.reserve(nodes.size());
+        for (auto &p : nodes)
+            node_ids.push_back(p.first);
+
+        // Stabilize each node (one pass)
+        for (u64 id : node_ids)
+            stabilize_node(id);
+
+        // Refresh finger tables after stabilization
+        for (u64 id : node_ids)
+            refresh_fingers_node(id);
+
+        // Rebalance files to move data to correct owners
+        rebalance_files();
+    }
+
+    /***********************************************************************/
 
     void dump_state(ostream &os) const // Output the current state of the network
     {
