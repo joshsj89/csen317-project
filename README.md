@@ -21,8 +21,10 @@ milestones and include a milestone schedule
 
 - Implemented basic Chord DHT node modules and hashing mechanism
 - Implemented node joining/leaving mechanisms, ensuring consistent finger table updates
+- Implemented basic key adding/retrieving for Chord DHT
 
 ## Next Steps
 
-- Implement basic key adding/retrieving for Chord DHT
 - Conduct tests regarding stability and performance at varying scales
+- Implement Kademlia DHT mechanisms
+- Compare Chord and Kademlia DHTs

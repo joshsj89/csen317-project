@@ -59,18 +59,34 @@ struct ChordNetwork // manages nodes and routing
 
         nodes.emplace(id, Node(id, tname, m));
 
-        recompute_finger_tables();
-        stabilize_all();
+        recompute_finger_tables(); // update all finger tables
+        transfer_keys_to_new_node(id); // move keys from successor to new node
+        // stabilize_all();
 
         return id;
     }
 
     void remove_node(u64 id) // Removes node from the ring and recomputes finger tables
     {
+        if (!has_node(id))
+            throw runtime_error("node not present");
+
+        Node &leaving_node = nodes.at(id);
+        u64 succ_id = leaving_node.successor;
+
+        if (has_node(succ_id))
+        {
+            Node &succ_node = nodes.at(succ_id);
+
+            // transfer all data to successor
+            for (auto &kv : leaving_node.data)
+                succ_node.data[kv.first] = kv.second;
+        }
+        
         nodes.erase(id);
 
         recompute_finger_tables();
-        stabilize_all();
+        // stabilize_all();
     }
 
     // find the successor node id for given identifier (the first node with id >= key, wrapping)
@@ -266,6 +282,43 @@ struct ChordNetwork // manages nodes and routing
         }
     }
 
+    // Transfer keys from successor to new node after join
+    void transfer_keys_to_new_node(u64 new_node_id)
+    {
+        if (!has_node(new_node_id))
+            return;
+
+        Node &new_node = nodes.at(new_node_id);
+        u64 succ_id = new_node.successor;
+
+        if (!has_node(succ_id))
+            return;
+
+        Node &succ = nodes.at(succ_id);
+
+        vector<string> to_move; // keys to move to new node
+        to_move.reserve(succ.data.size());
+
+        for (auto &kv : succ.data)
+        {
+            const string &key = kv.first;
+            u64 k = hash_str(key);
+
+            // if key should be moved to new node
+            if (in_interval_inclusive(new_node.predecessor, new_node.id, k))
+            {
+                to_move.push_back(key);
+            }
+        }
+
+        // Move keys from successor to new node
+        for (const string &key : to_move)
+        {
+            new_node.data[key] = succ.data[key];
+            succ.data.erase(key);
+        }
+    }
+
     // Rebalance files among nodes after stabilization
     // Time Complexity: O(N * F * log N) where N = number of nodes, F = average files per node
     void rebalance_files()
@@ -334,7 +387,8 @@ struct ChordNetwork // manages nodes and routing
             refresh_fingers_node(id);
 
         // Rebalance files to move data to correct owners
-        rebalance_files();
+        // Note: Disabled because incremental transfer is done on join
+        // rebalance_files();
     }
 
     /***********************************************************************/
