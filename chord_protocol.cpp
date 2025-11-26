@@ -307,9 +307,7 @@ struct ChordNetwork // manages nodes and routing
 
             // if key should be moved to new node
             if (in_interval_inclusive(new_node.predecessor, new_node.id, k))
-            {
                 to_move.push_back(key);
-            }
         }
 
         // Move keys from successor to new node
