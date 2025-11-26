@@ -115,8 +115,10 @@ struct ChordNetwork // manages nodes and routing
             throw runtime_error("no nodes");
         if (!has_node(start_id))
             throw runtime_error("start node not present");
+
         u64 curr = start_id;
         int hops = 0;
+
         // simple loop with limit to avoid infinite loops in buggy state
         int max_hop = max(50, (int)nodes.size() * 5);
         while (hops < max_hop)
@@ -149,6 +151,7 @@ struct ChordNetwork // manages nodes and routing
                 break;
             curr = next;
         }
+
         // if we didn't find via fingers, use global find_successor
         return {hops, find_successor_id(key)};
     }
@@ -190,6 +193,25 @@ struct ChordNetwork // manages nodes and routing
         if (it == nodes.at(owner).data.end())
             return {string(), owner};
         return {it->second, owner};
+    }
+
+    // get file from a specified start node, returning content and hops taken
+    pair<string, int> get_from(u64 start_id, const string &key) const
+    {
+        // local lookup first
+        const Node &start = nodes.at(start_id);
+        if (start.data.count(key))
+            return {start.data.at(key), 0};
+
+        // routing lookup
+        u64 k = hash_str(key);
+        auto [hops, owner_id] = route_lookup(start_id, k);
+
+        const Node &owner = nodes.at(owner_id);
+        if (owner.data.count(key))
+            return {owner.data.at(key), hops};
+            
+        return {string(), hops};
     }
 
     void dump_state(ostream &os) const // Output the current state of the network
@@ -256,8 +278,8 @@ int main()
         // start lookup from each node and show hops
         for (auto sid : ids)
         {
-            auto [hops, owner] = net.route_lookup(sid, keyid);
-            cout << "  start=" << sid << " lookup(" << f.first << ", id=" << keyid << ") -> owner=" << owner << " hops=" << hops << endl;
+            auto [contents, hops] = net.get_from(sid, f.first);
+            cout << "  start=" << sid << " lookup(" << f.first << ", id=" << keyid << ") -> hops=" << hops << " present=" << !contents.empty() << endl;
         }
         auto [val, owner] = net.get(f.first);
         cout << "    final owner for " << f.first << " (id=" << keyid << ") = " << owner << " value_present=" << (!val.empty()) << endl;
