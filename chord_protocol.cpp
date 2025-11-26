@@ -207,10 +207,12 @@ struct ChordNetwork // manages nodes and routing
         u64 k = hash_str(key);
         auto [hops, owner_id] = route_lookup(start_id, k);
 
+        // check data at owner
         const Node &owner = nodes.at(owner_id);
         if (owner.data.count(key))
             return {owner.data.at(key), hops};
             
+        // not found
         return {string(), hops};
     }
 
