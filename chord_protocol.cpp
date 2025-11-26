@@ -12,6 +12,7 @@ using namespace std;
 // - Consistent hashing with m-bit identifier space
 // - Finger tables computed globally (no background stabilization)
 // - put/get map keys to the node that is successor of the key hash
+// - Basic stabilization and rebalancing after node joins/leaves
 
 using u64 = uint64_t;
 
