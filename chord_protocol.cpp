@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <map>
 #include <functional>
 #include <algorithm>
@@ -15,6 +16,8 @@ using namespace std;
 // - Basic stabilization and rebalancing after node joins/leaves
 
 using u64 = uint64_t;
+
+int replication_factor = 3;
 
 struct Node
 {
@@ -62,6 +65,7 @@ struct ChordNetwork // manages nodes and routing
 
         recompute_finger_tables(); // update all finger tables
         transfer_keys_to_new_node(id); // move keys from successor to new node
+        recalculate_replication_after_join(id); // ensure replication is correct
         // stabilize_all();
 
         return id;
@@ -87,6 +91,7 @@ struct ChordNetwork // manages nodes and routing
         nodes.erase(id);
 
         recompute_finger_tables();
+        recalculate_replication_after_leave(id); // ensure replication is correct
         // stabilize_all();
     }
 
@@ -99,6 +104,26 @@ struct ChordNetwork // manages nodes and routing
         if (it == nodes.end())
             return nodes.begin()->first;
         return it->first;
+    }
+
+    vector<u64> get_successor_list(u64 node_id, int count) const
+    {
+        vector<u64> succs;
+
+        if (nodes.empty() || !has_node(node_id) || count <= 0)
+            return succs;
+
+        auto it = nodes.find(node_id);
+        for (int i = 0; i < count; i++)
+        {
+            if (it == nodes.end())
+                it = nodes.begin();
+
+            succs.push_back(it->first);
+            ++it;
+        }
+
+        return succs;
     }
 
     void recompute_finger_tables() // Recomputes successor, predecessor, and finger tables for all nodes
@@ -204,7 +229,11 @@ struct ChordNetwork // manages nodes and routing
     {
         u64 k = hash_str(key);
         u64 owner = find_successor_id(k);
-        nodes.at(owner).data[key] = value;
+
+        // store in owner and its successors for replication
+        auto succs_ids = get_successor_list(owner, replication_factor);
+        for (u64 node_id : succs_ids)
+            nodes.at(node_id).data[key] = value;
     }
 
     // get value and the node that serves it; empty string if not found
@@ -212,10 +241,18 @@ struct ChordNetwork // manages nodes and routing
     {
         u64 k = hash_str(key);
         u64 owner = find_successor_id(k);
-        auto it = nodes.at(owner).data.find(key);
-        if (it == nodes.at(owner).data.end())
-            return {string(), owner};
-        return {it->second, owner};
+
+        // check owner and its successors for replication
+        auto succs_ids = get_successor_list(owner, replication_factor);
+        for (u64 node_id : succs_ids)
+        {
+            const Node &n = nodes.at(node_id);
+            auto it = n.data.find(key);
+            if (it != n.data.end())
+                return {it->second, node_id};
+        }
+        
+        return {string(), owner}; // not found
     }
 
     // get file from a specified start node, returning content and hops taken
@@ -284,6 +321,7 @@ struct ChordNetwork // manages nodes and routing
     }
 
     // Transfer keys from successor to new node after join
+    // Time Complexity: O(F * R) where F = files on successor, R = replication factor; not dependent on N
     void transfer_keys_to_new_node(u64 new_node_id)
     {
         if (!has_node(new_node_id))
@@ -300,6 +338,7 @@ struct ChordNetwork // manages nodes and routing
         vector<string> to_move; // keys to move to new node
         to_move.reserve(succ.data.size());
 
+        // Identify keys that should be moved to the new node
         for (auto &kv : succ.data)
         {
             const string &key = kv.first;
@@ -310,11 +349,18 @@ struct ChordNetwork // manages nodes and routing
                 to_move.push_back(key);
         }
 
-        // Move keys from successor to new node
+        // Move keys to new node and replicate locally
         for (const string &key : to_move)
         {
-            new_node.data[key] = succ.data[key];
+            string value = succ.data[key];
+            
+            new_node.data[key] = value;
             succ.data.erase(key);
+
+            auto replica_ids = get_successor_list(new_node_id, replication_factor);
+            for (u64 rid : replica_ids)
+                if (rid != new_node_id)
+                    nodes.at(rid).data[key] = value;
         }
     }
 
@@ -391,6 +437,128 @@ struct ChordNetwork // manages nodes and routing
     }
 
     /***********************************************************************/
+
+    // Recalculate replication of files across the network (global recalculation)
+    // Time Complexity: O(N^2 * F) where N = number of nodes, F = average files per node
+    /*
+    void recalculate_replication()
+    {
+        for (auto &p : nodes)
+        {
+            u64 owner_id = p.first;
+            auto correct_succs_ids = get_successor_list(owner_id, replication_factor);
+
+            // whitelist set for quick lookup
+            unordered_set<u64> allowed(correct_succs_ids.begin(), correct_succs_ids.end());
+
+            for (auto &q : nodes)
+            {
+                u64 node_id = q.first;
+                Node &node = q.second;
+
+                vector<string> to_remove;
+
+                for (auto &kv : node.data)
+                {
+                    u64 k = hash_str(kv.first);
+                    u64 real_owner_id = find_successor_id(k);
+
+                    if (real_owner_id == owner_id && !allowed.count(node_id))
+                        to_remove.push_back(kv.first);
+                }
+
+                for (auto &key : to_remove)
+                    node.data.erase(key);
+            }
+        }
+    }
+    */
+
+    void recalculate_replication_after_join(u64 new_node_id)
+    {
+        if (!has_node(new_node_id))
+            return;
+
+        Node &new_node = nodes.at(new_node_id);
+
+        vector<string> owned_keys;
+        for (auto &kv : new_node.data)
+        {
+            u64 k = hash_str(kv.first);
+
+            // only keys for which this new node is the owner
+            if (find_successor_id(k) == new_node_id)
+                owned_keys.push_back(kv.first);
+        }
+
+        // new replica targets
+        auto succs_ids = get_successor_list(new_node_id, replication_factor);
+
+        // replicate owned keys to successors
+        for (auto &key : owned_keys)
+        {
+            string &value = new_node.data[key];
+
+            // ensure replication on successors
+            for (u64 node_id : succs_ids)
+            {
+                if (node_id == new_node_id) // skip self
+                    continue;
+                nodes.at(node_id).data[key] = value;
+            }
+        }
+
+        // remove keys from nodes that are no longer valid replicas
+        if (succs_ids.size() >= replication_factor)
+        {
+            u64 old_replica_id = succs_ids.back(); // last in the list
+            Node &old_replica_node = nodes.at(old_replica_id);
+
+            for (auto it = old_replica_node.data.begin(); it != old_replica_node.data.end(); )
+            {
+                u64 k = hash_str(it->first);
+                if (find_successor_id(k) != old_replica_id)
+                    it = old_replica_node.data.erase(it);
+                else
+                    ++it;
+            }
+        }
+    }
+
+    // Recalculate replication of files across the network after a node leaves
+    // Time Complexity: O(T * log N) where T = total files in network, N = number of nodes
+    void recalculate_replication_after_leave(u64 departed_node_id)
+    {
+        if (nodes.empty())
+            return;
+
+        // Examine each node, but only remove invalid replicas
+        for (auto &p : nodes)
+        {
+            u64 node_id = p.first;
+            Node &node = p.second;
+
+            vector<string> to_remove;
+
+            for (auto &kv : node.data)
+            {
+                u64 k = hash_str(kv.first);
+                u64 owner_id = find_successor_id(k);
+
+                // Compute new successor/replica list for the owner
+                auto succs_ids = get_successor_list(owner_id, replication_factor);
+                unordered_set<u64> allowed(succs_ids.begin(), succs_ids.end());
+
+                // if this node is no longer a valid replica for the key
+                if (!allowed.count(node_id))
+                    to_remove.push_back(kv.first);
+            }
+
+            // Remove invalid replicas
+            for (auto &key : to_remove)
+                node.data.erase(key);
+        }
+    }
 
     void dump_state(ostream &os) const // Output the current state of the network
     {
