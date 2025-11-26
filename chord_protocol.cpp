@@ -1,4 +1,3 @@
-
 #include <cstdint>
 #include <iostream>
 #include <string>
@@ -135,7 +134,7 @@ struct ChordNetwork // manages nodes and routing
             for (int k = m - 1; k >= 0; --k)
             {
                 u64 f = n.finger[k];
-                if (in_interval_open(curr, key, f))
+                if (in_interval_open(curr, key, f)) // finger is in (curr, key)
                 {
                     next = f;
                     break;
@@ -211,6 +210,8 @@ struct ChordNetwork // manages nodes and routing
                     os << "      " << kv.first << " -> " << kv.second << "\n";
             }
         }
+
+        os.flush();
     }
 };
 
@@ -232,7 +233,7 @@ int main()
         ids.push_back(id);
     }
 
-    cout << "Initial network:\n";
+    cout << "Initial network:" << endl;
     net.dump_state(cout);
 
     // insert some files (keys)
@@ -244,11 +245,11 @@ int main()
     for (auto &f : files)
         net.put(f.first, f.second);
 
-    cout << "\nAfter inserting files:\n";
+    cout << "\nAfter inserting files:" << endl;
     net.dump_state(cout);
 
     // demonstrate lookups and routing
-    cout << "\nLookup simulation:\n";
+    cout << "\nLookup simulation:" << endl;
     for (auto &f : files)
     {
         u64 keyid = net.hash_str(f.first);
@@ -256,23 +257,23 @@ int main()
         for (auto sid : ids)
         {
             auto [hops, owner] = net.route_lookup(sid, keyid);
-            cout << "  start=" << sid << " lookup(" << f.first << ", id=" << keyid << ") -> owner=" << owner << " hops=" << hops << "\n";
+            cout << "  start=" << sid << " lookup(" << f.first << ", id=" << keyid << ") -> owner=" << owner << " hops=" << hops << endl;
         }
         auto [val, owner] = net.get(f.first);
-        cout << "    final owner for " << f.first << " (id=" << keyid << ") = " << owner << " value_present=" << (!val.empty()) << "\n";
+        cout << "    final owner for " << f.first << " (id=" << keyid << ") = " << owner << " value_present=" << (!val.empty()) << endl;
     }
 
     // add a new node and show remapping
-    cout << "\nAdding a new node 'node-E' and recomputing tables:\n";
+    cout << "\nAdding a new node 'node-E' and recomputing tables:" << endl;
     u64 newId = net.add_node("node-E");
     net.dump_state(cout);
 
     // show file ownership after the join
-    cout << "\nFile ownership after join:\n";
+    cout << "\nFile ownership after join:" << endl;
     for (auto &f : files)
     {
         auto [val, owner] = net.get(f.first);
-        cout << "  " << f.first << " -> owner=" << owner << " present=" << (!val.empty()) << "\n";
+        cout << "  " << f.first << " -> owner=" << owner << " present=" << (!val.empty()) << endl;
     }
 
     return 0;
