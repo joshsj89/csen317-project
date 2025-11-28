@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -38,5 +39,5 @@ public:
     void stabilize();
     void fix_fingers();
     void notify(u64 nid, std::string nip, int nport);
-    std::pair<u64,std::string> find_successor(u64 id);
+    std::tuple<u64,std::string,int> find_successor(u64 id);
 };

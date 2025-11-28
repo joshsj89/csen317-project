@@ -41,7 +41,7 @@ RPCResponse rpc_send(const std::string &ip, int port, const std::string &msg)
     if (resp.rfind("OK", 0) == 0)
         return {true, resp.substr(3)}; // skip "OK "
     else
-        return {false, resp.substr(4)};
+        return {false, resp.substr(4)}; // skip "ERR "
 }
 
 int rpc_start_listener(int port)

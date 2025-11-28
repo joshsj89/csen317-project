@@ -47,14 +47,10 @@ void handle_rpc(int client_fd, const std::string &msg)
         u64 key;
         ss >> key;
 
-        // auto [succ_id, succ_ip, succ_port] = SELF->find_successor(key);
-        // temp implementation (for testing)
-        u64 succ_id = 67;
-        std::string succ_ip = "67";
-        std::string succ_port = "67";
+        auto [succ_id, succ_ip, succ_port] = SELF->find_successor(key);
 
         std::string reply =
-            "OK " + std::to_string(succ_id) + " " + succ_ip + " " + succ_port + "\n";
+            "OK " + std::to_string(succ_id) + " " + succ_ip + " " + std::to_string(succ_port) + "\n";
 
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
