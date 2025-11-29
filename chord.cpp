@@ -91,6 +91,36 @@ void ChordNode::join(std::string bootstrap_ip, int bootstrap_port)
     // recompute_finger_table();
 }
 
+void ChordNode::leave()
+{
+    isLeaving = true;
+
+    if (successor_id != id)
+    {
+        // Transfer keys to successor
+        // for (auto &kv : data)
+        // {
+        //     std::string msg = "STORE " + kv.first + " " + kv.second;
+        //     rpc_send(successor_ip, successor_port, msg);
+        // }
+
+        // Tell successor to update its predecessor
+        std::string notify_msg = "SET_PREDECESSOR " + std::to_string(predecessor_id) + " " + predecessor_ip + " " + std::to_string(predecessor_port);
+        rpc_send(successor_ip, successor_port, notify_msg);
+    }
+
+    if (predecessor_id != id)
+    {
+        // Tell predecessor to update its successor
+        std::string notify_msg = "SET_SUCCESSOR " + std::to_string(successor_id) + " " + successor_ip + " " + std::to_string(successor_port);
+        rpc_send(predecessor_ip, predecessor_port, notify_msg);
+    }
+
+    RUNNING = false; // stop RPC listener
+
+    std::cout << "[leave] Node " << id << " (" << ip << ":" << port << ") is gracefully leaving the network." << std::endl;
+}
+
 void ChordNode::notify(u64 nid, std::string nip, int nport)
 {
     if (predecessor_id == id ||
@@ -104,6 +134,10 @@ void ChordNode::notify(u64 nid, std::string nip, int nport)
 
 void ChordNode::stabilize()
 {
+    // don't stabilize if node is leaving
+    if (isLeaving)
+        return;
+
     // Get successor's predecessor
     std::string msg = "GET_PREDECESSOR";
     RPCResponse resp = rpc_send(successor_ip, successor_port, msg);
@@ -116,38 +150,29 @@ void ChordNode::stabilize()
             if (finger_table[k].node_id == id)
                 continue;
 
-            RPCResponse info = rpc_send(finger_table[k].node_ip, finger_table[k].node_port, "GET_INFO");
+            if (is_alive(finger_table[k].node_ip, finger_table[k].node_port) == false)
+            {
+                successor_id = id;
+                successor_ip = ip;
+                successor_port = port;
 
-            if (!info.ok)
-                continue;
-
-            std::istringstream iss(info.body);
-            u64 f_id;
-            std::string f_ip;
-            int f_port;
-            iss >> f_id >> f_ip >> f_port;
-
-            if (iss.fail())
-                continue;
-
-            successor_id = f_id;
-            successor_ip = f_ip;
-            successor_port = f_port;
-            break;
+                break;
+            }
         }
 
-        // Notify the (new) successor anyway
-        try
+        // If no fingers are alive, point to self
+        if (!is_alive(successor_ip, successor_port))
         {
-            std::string notify_msg = "NOTIFY " + std::to_string(id) + " " + ip + " " + std::to_string(port);
-            rpc_send(successor_ip, successor_port, notify_msg);
+            successor_id = id;
+            successor_ip = ip;
+            successor_port = port;
 
             return;
         }
-        catch (...)
-        {
-            // ignore notify failures; stabilization will recover
-        }
+
+        // Notify successor
+        std::string notify_msg = "NOTIFY " + std::to_string(id) + " " + ip + " " + std::to_string(port);
+        rpc_send(successor_ip, successor_port, notify_msg);
     }
 
     // Parse successor's predecessor info
@@ -195,7 +220,7 @@ std::tuple<u64, std::string, int> ChordNode::find_successor(u64 id)
     RPCResponse resp = rpc_send(next_ip, next_port, msg);
 
     if (!resp.ok)
-        throw std::runtime_error("RPC to find_successor failed: " + resp.body);
+        return {successor_id, successor_ip, successor_port}; // fallback to current successor
 
     u64 succ_id;
     std::string succ_ip;
@@ -216,7 +241,8 @@ std::tuple<u64, std::string, int> ChordNode::closest_preceding_finger(u64 id)
         u64 f_id = finger_table[k].node_id;
         if (in_interval_open(this->id, id, f_id))
         {
-            return {finger_table[k].node_id, finger_table[k].node_ip, finger_table[k].node_port};
+            if (is_alive(finger_table[k].node_ip, finger_table[k].node_port))
+                return {finger_table[k].node_id, finger_table[k].node_ip, finger_table[k].node_port};
         }
     }
 
@@ -247,4 +273,10 @@ void ChordNode::recompute_finger_table()
         finger_table[k].node_ip = succ_ip;
         finger_table[k].node_port = succ_port;
     }
+}
+
+bool ChordNode::is_alive(std::string check_ip, int check_port)
+{
+    RPCResponse resp = rpc_send(check_ip, check_port, "PING");
+    return resp.ok;
 }

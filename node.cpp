@@ -8,6 +8,8 @@
 #include "rpc.hpp"
 
 ChordNode *SELF = nullptr;
+bool RUNNING = true;
+bool isLeaving = false;
 
 void handle_rpc(int client_fd, const std::string &msg)
 {
@@ -63,6 +65,34 @@ void handle_rpc(int client_fd, const std::string &msg)
 
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
+    else if (cmd == "SET_PREDECESSOR")
+    {
+        u64 pid;
+        std::string pip;
+        int pport;
+        ss >> pid >> pip >> pport;
+
+        SELF->predecessor_id = pid;
+        SELF->predecessor_ip = pip;
+        SELF->predecessor_port = pport;
+
+        std::string reply = "OK predecessor_set\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
+    else if (cmd == "SET_SUCCESSOR")
+    {
+        u64 sid;
+        std::string sip;
+        int sport;
+        ss >> sid >> sip >> sport;
+
+        SELF->successor_id = sid;
+        SELF->successor_ip = sip;
+        SELF->successor_port = sport;
+
+        std::string reply = "OK successor_set\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
     else
     {
         std::string reply = "ERR unknown_command\n";
@@ -96,7 +126,7 @@ int main(int argc, char **argv)
 
     // Stabilization thread
     std::thread stabilizer([&]() {
-        while (true)
+        while (RUNNING)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             node.stabilize();
@@ -123,6 +153,11 @@ int main(int argc, char **argv)
             node.join(bootstrap_ip, bootstrap_port);
             std::cout << "Joined the network via " << bootstrap_ip << ":" << bootstrap_port << std::endl;
         }
+        else if (cmd == "leave")
+        {
+            node.leave();
+            break;
+        }
         else if (cmd == "info")
         {
             std::cout << "Node ID: " << node.id << std::endl;
@@ -141,10 +176,15 @@ int main(int argc, char **argv)
         }
     }
 
-    listener.join();
-    // stabilizer.join();
+    RUNNING = false; // stop stabilization thread
 
+    shutdown(server_fd, SHUT_RDWR); // unblock accept()
     close(server_fd);
+
+    // Wait for threads to finish
+    listener.join();
+    stabilizer.join();
+
 
     return 0;
 }

@@ -38,10 +38,15 @@ public:
     ChordNode(std::string ip_address, int port_number, int m_bits);
 
     void join(std::string bootstrap_ip, int bootstrap_port);
+    void leave();
+    void notify(u64 nid, std::string nip, int nport);
+
     void stabilize();
     void fix_fingers();
-    void notify(u64 nid, std::string nip, int nport);
     std::tuple<u64,std::string,int> find_successor(u64 id);
     std::tuple<u64,std::string,int> closest_preceding_finger(u64 id);
     void recompute_finger_table();
+    bool is_alive(std::string check_ip, int check_port);
 };
+
+extern bool isLeaving; // global flag to indicate if node is leaving

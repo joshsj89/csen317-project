@@ -80,11 +80,16 @@ int rpc_start_listener(int port)
 
 void rpc_accept_loop(int server_fd, void (*handler)(int, const std::string&))
 {
-    while (true)
+    while (RUNNING)
     {
         sockaddr_in client_addr{};
         socklen_t client_len = sizeof(client_addr);
         int client_fd = accept(server_fd, (sockaddr *)&client_addr, &client_len);
+
+        // Check if RUNNING flag was cleared during blocking accept call
+        if (!RUNNING)
+            break;
+
         if (client_fd < 0)
         {
             std::cerr << "Accept failed\n";
