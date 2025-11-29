@@ -1,9 +1,24 @@
 # csen317-project
 
-## Run the current Chord Protocol Simulation (currently nodes only, no file storage)
-
+## Run the current Chord Protocol Simulation (single-process)
+```
 g++ -std=c++17 -o chord_sim chord_protocol.cpp
 ./chord_sim
+```
+
+## Run the current Chord DHT Node (multi-process)
+```
+make clean all
+./chord_sim <IP_ADDRESS> <PORT> <m bits>
+```
+
+Each node can be run in a separate terminal window. For example:
+```
+./chord_sim 127.0.0.1 5000 8
+./chord_sim 127.0.0.1 5001 8
+./chord_sim 127.0.0.1 5002 8
+./chord_sim 127.0.0.1 5003 8
+```
 
 ## Outline (from our project proposal)
 
