@@ -88,10 +88,9 @@ milestones and include a milestone schedule
 ### Multi Process
 - Implemented basic Chord DHT node modules and hashing mechanism
 - Implemented node joining/leaving mechanisms, ensuring consistent finger table updates
+- Implemented basic key adding/retrieving for Chord DHT in multi-process setup
 
 ## Next Steps
-
-- Implement basic key adding/retrieving for Chord DHT in multi-process setup
 - Implement node crashes that don't exit the entire process (i.e. keeps files but stops responding to RPCs)
 - Implement key rebalancing in multi-process setup
 - Implement key replication in multi-process setup
