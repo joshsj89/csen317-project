@@ -77,10 +77,12 @@ void ChordNode::join(std::string bootstrap_ip, int bootstrap_port)
     std::cout << "[join] Joined the network. Successor: " << successor_id << " (" << successor_ip << ":" << successor_port << ")" << std::endl;
 
     // Notify the successor so it can update its predecessor immediately
-    try {
+    try
+    {
         std::string notify_msg = "NOTIFY " + std::to_string(id) + " " + ip + " " + std::to_string(port);
         rpc_send(successor_ip, successor_port, notify_msg);
-    } catch (...) {
+    } catch (...)
+    {
         // ignore notify failures; stabilization will recover
     }
 
