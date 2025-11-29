@@ -142,37 +142,35 @@ void ChordNode::stabilize()
     std::string msg = "GET_PREDECESSOR";
     RPCResponse resp = rpc_send(successor_ip, successor_port, msg);
 
-    // If successor failed to respond, we could try to find the next alive node
+    // If successor failed to respond, we could try to find the next alive finger
     if (!resp.ok)
     {
+        bool found_alive = false;
         for (int k = 0; k < m; ++k)
         {
             if (finger_table[k].node_id == id)
                 continue;
 
-            if (is_alive(finger_table[k].node_ip, finger_table[k].node_port) == false)
+            if (is_alive(finger_table[k].node_ip, finger_table[k].node_port))
             {
-                successor_id = id;
-                successor_ip = ip;
-                successor_port = port;
+                successor_id = finger_table[k].node_id;
+                successor_ip = finger_table[k].node_ip;
+                successor_port = finger_table[k].node_port;
 
+                found_alive = true;
                 break;
             }
         }
 
         // If no fingers are alive, point to self
-        if (!is_alive(successor_ip, successor_port))
+        if (!found_alive)
         {
             successor_id = id;
             successor_ip = ip;
             successor_port = port;
-
-            return;
         }
 
-        // Notify successor
-        std::string notify_msg = "NOTIFY " + std::to_string(id) + " " + ip + " " + std::to_string(port);
-        rpc_send(successor_ip, successor_port, notify_msg);
+        return;
     }
 
     // Parse successor's predecessor info
@@ -194,6 +192,9 @@ void ChordNode::stabilize()
     if (succ_pred_id != 0 &&
         in_interval_open(id, successor_id, succ_pred_id))
     {
+        if (!is_alive(succ_pred_ip, succ_pred_port))
+            return;
+
         successor_id = succ_pred_id;
         successor_ip = succ_pred_ip;
         successor_port = succ_pred_port;
@@ -278,5 +279,21 @@ void ChordNode::recompute_finger_table()
 bool ChordNode::is_alive(std::string check_ip, int check_port)
 {
     RPCResponse resp = rpc_send(check_ip, check_port, "PING");
+
+    if (!resp.ok)
+    {
+        // Remove dead node from finger table
+        for (int k = 0; k < m; ++k)
+        {
+            if (finger_table[k].node_ip == check_ip &&
+                finger_table[k].node_port == check_port)
+            {
+                finger_table[k].node_id = id;
+                finger_table[k].node_ip = ip;
+                finger_table[k].node_port = port;
+            }
+        }
+    }
+
     return resp.ok;
 }
