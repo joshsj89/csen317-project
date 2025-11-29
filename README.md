@@ -20,6 +20,30 @@ Each node can be run in a separate terminal window. For example:
 ./chord_sim 127.0.0.1 5003 8
 ```
 
+### Joining a node to an existing network
+To join a node to an existing network, use the `join` command followed by the IP address and port of an existing node in the network. For example, to join the node running on 127.0.0.1:5000 from another node, enter:
+```
+join 127.0.0.1 5000
+```
+
+### Leaving a node from the network
+To leave the network gracefully, use the `leave` command:
+```
+leave
+```
+
+### Crashing a node
+To simulate a node crash, simply terminate the process (e.g., using Ctrl+C in the terminal) or use the `exit` command:
+```
+exit
+```
+
+### Retrieving node information
+To retrieve information about the current node, use the `info` command:
+```
+info
+```
+
 ## Outline (from our project proposal)
 
 Be sure to structure your plan into a set of incremental, implementable
