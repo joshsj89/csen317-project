@@ -44,6 +44,14 @@ To retrieve information about the current node, use the `info` command:
 info
 ```
 
+### Sending RPC commands (for debugging/testing purposes only)
+To send RPC commands to a node, you can use tools like `telnet` or `netcat`. For example, to send a `PING` command to a node running on 127.0.0.1:5000, use:
+```
+echo "PING" | nc 127.0.0.1 5000
+
+echo "FIND_SUCCESSOR <key_id>" | nc 127.0.0.1 5000
+```
+
 ## Outline (from our project proposal)
 
 Be sure to structure your plan into a set of incremental, implementable
