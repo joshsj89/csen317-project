@@ -78,6 +78,7 @@ milestones and include a milestone schedule
 ## Next Steps
 
 - Implement basic key adding/retrieving for Chord DHT in multi-process setup
+- Implement node crashes that don't exit the entire process (i.e. keeps files but stops responding to RPCs)
 - Implement key rebalancing in multi-process setup
 - Implement key replication in multi-process setup
 - Conduct tests regarding stability and performance at varying scales
