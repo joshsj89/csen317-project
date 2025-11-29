@@ -70,6 +70,8 @@ milestones and include a milestone schedule
 ## Next Steps
 
 - Implement basic key adding/retrieving for Chord DHT in multi-process setup
+- Implement key rebalancing in multi-process setup
+- Implement key replication in multi-process setup
 - Conduct tests regarding stability and performance at varying scales
 - Implement Kademlia DHT mechanisms
 - Compare Chord and Kademlia DHTs
