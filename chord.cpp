@@ -74,6 +74,8 @@ void ChordNode::join(std::string bootstrap_ip, int bootstrap_port)
     successor_ip = succ_ip;
     successor_port = succ_port;
 
+    rpc_send(successor_ip, successor_port, "TRANSFER_KEYS " + std::to_string(id) + " " + ip + " " + std::to_string(port));
+
     std::cout << "[join] Joined the network. Successor: " << successor_id << " (" << successor_ip << ":" << successor_port << ")" << std::endl;
 
     // Notify the successor so it can update its predecessor immediately
@@ -97,12 +99,14 @@ void ChordNode::leave()
 
     if (successor_id != id)
     {
-        // Transfer keys to successor
-        // for (auto &kv : data)
-        // {
-        //     std::string msg = "STORE " + kv.first + " " + kv.second;
-        //     rpc_send(successor_ip, successor_port, msg);
-        // }
+        for (const auto &kv : data)
+        {
+            // Transfer all keys to successor
+            std::string msg = "PUT " + kv.first + " " + kv.second;
+            rpc_send(successor_ip, successor_port, msg);
+        }
+
+        data.clear();
 
         // Tell successor to update its predecessor
         std::string notify_msg = "SET_PREDECESSOR " + std::to_string(predecessor_id) + " " + predecessor_ip + " " + std::to_string(predecessor_port);
@@ -171,6 +175,42 @@ std::string ChordNode::get(const std::string &key)
         resp.body.pop_back();
 
     return resp.body;
+}
+
+void ChordNode::transfer_keys(u64 new_node_id, std::string new_node_ip, int new_node_port)
+{
+    std::vector<std::string> keys_to_transfer;
+    keys_to_transfer.reserve(data.size());
+
+    // Identify keys that should be transferred to the new node
+    for (const auto &kv : data)
+    {
+        u64 key_id = hash_str(kv.first) % (1ULL << m);
+
+        // if key is in (predecessor_id, new_node_id]
+        if (in_interval_inclusive(predecessor_id, new_node_id, key_id))
+        {
+            keys_to_transfer.push_back(kv.first);
+        }
+    }
+
+    // Transfer keys to the new node
+    for (const auto &key : keys_to_transfer)
+    {
+        std::string value = data[key];
+
+        std::string msg = "PUT " + key + " " + value;
+        RPCResponse resp = rpc_send(new_node_ip, new_node_port, msg);
+
+        if (resp.ok)
+        {
+            data.erase(key);
+        }
+        else
+        {
+            std::cerr << "[transfer_keys] Failed to transfer key '" << key << "': " << resp.body << std::endl;
+        }
+    }
 }
 
 void ChordNode::notify(u64 nid, std::string nip, int nport)

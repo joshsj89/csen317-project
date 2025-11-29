@@ -41,6 +41,7 @@ public:
     void leave();
     void put(const std::string &key, const std::string &value);
     std::string get(const std::string &key);
+    void transfer_keys(u64 new_node_id, std::string new_node_ip, int new_node_port);
     void notify(u64 nid, std::string nip, int nport);
 
     void stabilize();

@@ -123,6 +123,18 @@ void handle_rpc(int client_fd, const std::string &msg)
             send(client_fd, reply.c_str(), reply.size(), 0);
         }
     }
+    else if (cmd == "TRANSFER_KEYS")
+    {
+        u64 new_node_id;
+        std::string new_node_ip;
+        int new_node_port;
+        ss >> new_node_id >> new_node_ip >> new_node_port;
+
+        SELF->transfer_keys(new_node_id, new_node_ip, new_node_port);
+
+        std::string reply = "OK keys_transferred\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
     else
     {
         std::string reply = "ERR unknown_command\n";
@@ -219,6 +231,25 @@ int main(int argc, char **argv)
                 std::cout << key << " => " << value << std::endl;
             else
                 std::cout << "Key '" << key << "' not found." << std::endl;
+        }
+        else if (cmd == "files")
+        {
+            std::cout << "Stored files/keys:" << std::endl;
+            for (const auto &kv : node.data)
+            {
+                std::cout << "  " << kv.first << " => " << kv.second << std::endl;
+            }
+        }
+        else if (cmd == "help")
+        {
+            std::cout << "Commands:\n";
+            std::cout << "  join <bootstrap_ip> <bootstrap_port> - Join the Chord network\n";
+            std::cout << "  leave                               - Leave the Chord network\n";
+            std::cout << "  info                                - Display node information\n";
+            std::cout << "  put <key> <value>                   - Store a key-value pair\n";
+            std::cout << "  get <key>                           - Retrieve value for a key\n";
+            std::cout << "  files                               - List stored keys\n";
+            std::cout << "  exit                                - Exit the program\n";
         }
         else if (cmd == "exit")
         {
