@@ -251,6 +251,20 @@ std::tuple<u64, std::string, int> ChordNode::closest_preceding_finger(u64 id)
     return {this->id, this->ip, this->port};
 }
 
+void ChordNode::check_predecessor()
+{
+    if (predecessor_id == id)
+        return;
+
+    // If predecessor is dead, clear it
+    if (!is_alive(predecessor_ip, predecessor_port))
+    {
+        predecessor_id = id;
+        predecessor_ip = ip;
+        predecessor_port = port;
+    }
+}
+
 void ChordNode::fix_fingers()
 {
     static int next_finger = 0;

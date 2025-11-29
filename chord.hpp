@@ -44,6 +44,7 @@ public:
     void stabilize();
     void fix_fingers();
     std::tuple<u64,std::string,int> find_successor(u64 id);
+    void check_predecessor();
     std::tuple<u64,std::string,int> closest_preceding_finger(u64 id);
     void recompute_finger_table();
     bool is_alive(std::string check_ip, int check_port);
