@@ -11,7 +11,9 @@ using u64 = uint64_t;
 struct FingerEntry
 {
     u64 start; // start of the interval
-    u64 node;  // node responsible for the interval
+    u64 node_id;
+    std::string node_ip;
+    int node_port;
 };
 
 class ChordNode
@@ -40,4 +42,6 @@ public:
     void fix_fingers();
     void notify(u64 nid, std::string nip, int nport);
     std::tuple<u64,std::string,int> find_successor(u64 id);
+    std::tuple<u64,std::string,int> closest_preceding_finger(u64 id);
+    void recompute_finger_table();
 };

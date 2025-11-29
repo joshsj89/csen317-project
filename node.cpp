@@ -30,6 +30,15 @@ void handle_rpc(int client_fd, const std::string &msg)
 
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
+    else if (cmd == "GET_INFO")
+    {
+        std::string reply =
+            "OK " + std::to_string(SELF->id) + " " +
+            SELF->ip + " " +
+            std::to_string(SELF->port) + "\n";
+
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
     else if (cmd == "NOTIFY")
     {
         u64 nid;
@@ -86,14 +95,14 @@ int main(int argc, char **argv)
     });
 
     // Stabilization thread
-    // std::thread stabilizer([&]() {
-    //     while (true)
-    //     {
-    //         std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    //         node.stabilize();
-    //         node.fix_fingers();
-    //     }
-    // });
+    std::thread stabilizer([&]() {
+        while (true)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            node.stabilize();
+            node.fix_fingers();
+        }
+    });
 
     // CLI loop
     while (true)
