@@ -8,7 +8,7 @@
 #include "rpc.hpp"
 
 ChordNode *SELF = nullptr;
-bool RUNNING = true;
+std::atomic<bool> RUNNING = true;
 bool isLeaving = false;
 
 void handle_rpc(int client_fd, const std::string &msg)
@@ -128,7 +128,7 @@ int main(int argc, char **argv)
     std::thread stabilizer([&]() {
         while (RUNNING)
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            std::this_thread::sleep_for(std::chrono::seconds(1));
             node.stabilize();
             node.fix_fingers();
         }
@@ -151,7 +151,7 @@ int main(int argc, char **argv)
             int bootstrap_port;
             std::cin >> bootstrap_ip >> bootstrap_port;
             node.join(bootstrap_ip, bootstrap_port);
-            std::cout << "Joined the network via " << bootstrap_ip << ":" << bootstrap_port << std::endl;
+            // std::cout << "Joined the network via " << bootstrap_ip << ":" << bootstrap_port << std::endl;
         }
         else if (cmd == "leave")
         {

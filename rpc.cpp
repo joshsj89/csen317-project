@@ -11,6 +11,12 @@ RPCResponse rpc_send(const std::string &ip, int port, const std::string &msg)
     if (sock < 0)
         return {false, "socket creation failed"};
 
+    struct timeval tv;
+    tv.tv_sec = 1;  // 1 second timeout
+    tv.tv_usec = 0;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof tv);
+
     sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(port);
@@ -95,6 +101,11 @@ void rpc_accept_loop(int server_fd, void (*handler)(int, const std::string&))
             std::cerr << "Accept failed\n";
             continue;
         }
+
+        struct timeval tv;
+        tv.tv_sec = 1;  // 1 second timeout
+        tv.tv_usec = 0;
+        setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
 
         char buffer[4096];
         int n = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
