@@ -93,6 +93,36 @@ void handle_rpc(int client_fd, const std::string &msg)
         std::string reply = "OK successor_set\n";
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
+    else if (cmd == "PUT")
+    {
+        std::string key, value;
+        ss >> key;
+        std::getline(ss, value); // read the rest of the line as value (allow spaces)
+        if (!value.empty() && value[0] == ' ') 
+            value.erase(0, 1); // remove leading space
+
+        SELF->data[key] = value;
+
+        std::string reply = "OK stored\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
+    else if (cmd == "GET")
+    {
+        std::string key;
+        ss >> key;
+
+        if (SELF->data.count(key))
+        {
+            auto value = SELF->data[key];
+            std::string reply = "OK " + value + "\n";
+            send(client_fd, reply.c_str(), reply.size(), 0);
+        }
+        else
+        {
+            std::string reply = "ERR not_found\n";
+            send(client_fd, reply.c_str(), reply.size(), 0);
+        }
+    }
     else
     {
         std::string reply = "ERR unknown_command\n";
@@ -166,6 +196,29 @@ int main(int argc, char **argv)
             std::cout << "Port: " << node.port << std::endl;
             std::cout << "Predecessor: " << node.predecessor_id << " (" << node.predecessor_ip << ":" << node.predecessor_port << ")" << std::endl;
             std::cout << "Successor: " << node.successor_id << " (" << node.successor_ip << ":" << node.successor_port << ")" << std::endl;
+        }
+        else if (cmd == "put")
+        {
+            std::string key, value;
+            std::cin >> key;
+            std::getline(std::cin, value); // read the rest of the line as value (allow spaces)
+            if (!value.empty() && value[0] == ' ') 
+                value.erase(0, 1); // remove leading space
+
+            node.put(key, value);
+            std::cout << "Stored key '" << key << "'." << std::endl;
+        }
+        else if (cmd == "get")
+        {
+            std::string key;
+            std::cin >> key;
+            
+            std::string value = node.get(key);
+
+            if (!value.empty())
+                std::cout << key << " => " << value << std::endl;
+            else
+                std::cout << "Key '" << key << "' not found." << std::endl;
         }
         else if (cmd == "exit")
         {

@@ -121,6 +121,58 @@ void ChordNode::leave()
     std::cout << "[leave] Node " << id << " (" << ip << ":" << port << ") is gracefully leaving the network." << std::endl;
 }
 
+void ChordNode::put(const std::string &key, const std::string &value)
+{
+    u64 key_id = hash_str(key) % (1ULL << m);
+    auto [owner_id, owner_ip, owner_port] = find_successor(key_id);
+
+    // if this node is the owner, store locally
+    if (owner_id == id)
+    {
+        data[key] = value;
+    }
+    
+    std::string msg = "PUT " + key + " " + value;
+    RPCResponse resp = rpc_send(owner_ip, owner_port, msg);
+
+    if (!resp.ok)
+    {
+        // handle error (e.g., retry or log)
+        std::cerr << "[put] Failed to store key '" << key << "': " << resp.body << std::endl;
+    }
+}
+
+std::string ChordNode::get(const std::string &key)
+{
+    u64 key_id = hash_str(key) % (1ULL << m);
+    auto [owner_id, owner_ip, owner_port] = find_successor(key_id);
+
+    // if this node is the owner, retrieve locally
+    if (owner_id == id)
+    {
+        if (data.count(key))
+            return data[key];
+        else
+            return ""; // key not found
+    }
+
+    std::string msg = "GET " + key;
+    RPCResponse resp = rpc_send(owner_ip, owner_port, msg);
+
+    if (!resp.ok)
+    {
+        // handle error (e.g., retry or log)
+        std::cerr << "[get] Failed to retrieve key '" << key << "': " << resp.body << std::endl;
+        return "";
+    }
+
+    // remove the newline at the end if present
+    if (!resp.body.empty() && resp.body.back() == '\n')
+        resp.body.pop_back();
+
+    return resp.body;
+}
+
 void ChordNode::notify(u64 nid, std::string nip, int nport)
 {
     if (predecessor_id == id ||

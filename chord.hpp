@@ -39,6 +39,8 @@ public:
 
     void join(std::string bootstrap_ip, int bootstrap_port);
     void leave();
+    void put(const std::string &key, const std::string &value);
+    std::string get(const std::string &key);
     void notify(u64 nid, std::string nip, int nport);
 
     void stabilize();

@@ -44,12 +44,26 @@ To retrieve information about the current node, use the `info` command:
 info
 ```
 
+### Adding a file (key-value pair)
+To add a file (key-value pair) to the DHT, use the `put` command followed by the key and value. The value can contain spaces. For example:
+```
+put mykey myvalue
+```
+
+### Retrieving a file (value) by key
+To retrieve a file (value) by key from the DHT, use the `get` command followed by the key. For example:
+```
+get mykey
+```
+
 ### Sending RPC commands (for debugging/testing purposes only)
 To send RPC commands to a node, you can use tools like `telnet` or `netcat`. For example, to send a `PING` command to a node running on 127.0.0.1:5000, use:
 ```
 echo "PING" | nc 127.0.0.1 5000
 
 echo "FIND_SUCCESSOR <key_id>" | nc 127.0.0.1 5000
+
+echo "PUT <key> <value>" | nc 127.0.0.1 5000
 ```
 
 ## Outline (from our project proposal)
