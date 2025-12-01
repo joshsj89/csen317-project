@@ -100,7 +100,6 @@ echo "PUT <key> <value>" | nc 127.0.0.1 5000
 ## Docker Setup for Multi-Process Chord DHT Simulation
 1. Build the Docker image:
    ```
-   cd docker_chord
    docker build -t chord-node .
    ```
 2. Create a Docker network:
