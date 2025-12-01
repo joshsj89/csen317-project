@@ -1,5 +1,36 @@
 # csen317-project
 
+## Outline (from our project proposal)
+
+Be sure to structure your plan into a set of incremental, implementable
+milestones and include a milestone schedule
+
+1. Implement basic Chord DHT node modules and hashing mechanism, as well as basic key adding/retrieving
+2. Implement node joining/leaving mechanisms, ensuring consistent finger table updates
+3. Conduct tests regarding stability and performance at varying scales, preferably at a large scale (entire point of the course)
+4. Repeat steps 1-3 but for Kademlia DHT instead and implement each mechanism of Kademlia DHT that is different from Chord.
+5. Compare the Methods
+6. Presentation & Paper
+
+## Current Progress
+
+### Single Process
+- Implemented basic Chord DHT node modules and hashing mechanism
+- Implemented node joining/leaving mechanisms, ensuring consistent finger table updates
+- Implemented basic key adding/retrieving for Chord DHT
+
+### Multi Process
+- Implemented basic Chord DHT node modules and hashing mechanism
+- Implemented node joining/leaving mechanisms, ensuring consistent finger table updates
+- Implemented basic key adding/retrieving for Chord DHT in multi-process setup
+
+## Next Steps
+- Implement key rebalancing in multi-process setup
+- Implement key replication in multi-process setup
+- Conduct tests regarding stability and performance at varying scales
+- Implement Kademlia DHT mechanisms
+- Compare Chord and Kademlia DHTs
+
 ## Run the current Chord Protocol Simulation (single-process)
 ```
 g++ -std=c++17 -o chord_sim chord_protocol.cpp
@@ -66,33 +97,24 @@ echo "FIND_SUCCESSOR <key_id>" | nc 127.0.0.1 5000
 echo "PUT <key> <value>" | nc 127.0.0.1 5000
 ```
 
-## Outline (from our project proposal)
-
-Be sure to structure your plan into a set of incremental, implementable
-milestones and include a milestone schedule
-
-1. Implement basic Chord DHT node modules and hashing mechanism, as well as basic key adding/retrieving
-2. Implement node joining/leaving mechanisms, ensuring consistent finger table updates
-3. Conduct tests regarding stability and performance at varying scales, preferably at a large scale (entire point of the course)
-4. Repeat steps 1-3 but for Kademlia DHT instead and implement each mechanism of Kademlia DHT that is different from Chord.
-5. Compare the Methods
-6. Presentation & Paper
-
-## Current Progress
-
-### Single Process
-- Implemented basic Chord DHT node modules and hashing mechanism
-- Implemented node joining/leaving mechanisms, ensuring consistent finger table updates
-- Implemented basic key adding/retrieving for Chord DHT
-
-### Multi Process
-- Implemented basic Chord DHT node modules and hashing mechanism
-- Implemented node joining/leaving mechanisms, ensuring consistent finger table updates
-- Implemented basic key adding/retrieving for Chord DHT in multi-process setup
-
-## Next Steps
-- Implement key rebalancing in multi-process setup
-- Implement key replication in multi-process setup
-- Conduct tests regarding stability and performance at varying scales
-- Implement Kademlia DHT mechanisms
-- Compare Chord and Kademlia DHTs
+## Docker Setup for Multi-Process Chord DHT Simulation
+1. Build the Docker image:
+   ```
+   cd docker_chord
+   docker build -t chord-node .
+   ```
+2. Create a Docker network:
+   ```
+    docker network create chord-net
+    ```
+3. Run multiple Chord DHT nodes in separate Docker containers:
+    ```
+    docker run -it --rm --network chord-net --name node1 chord-node node1 12000 8
+    docker run -it --rm --network chord-net --name node2 chord-node node2 12001 8
+    docker run -it --rm --network chord-net --name node3 chord-node node3 12002 8
+    docker run -it --rm --network chord-net --name node4 chord-node node4 12003 8
+    ```
+4. Join nodes to the network using the `join` command as described above.
+    ```
+    join node1 12000
+    ```
