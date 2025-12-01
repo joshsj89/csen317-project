@@ -217,6 +217,7 @@ int main(int argc, char **argv)
             if (!value.empty() && value[0] == ' ') 
                 value.erase(0, 1); // remove leading space
 
+            if (value.empty())
             node.put(key, value);
             std::cout << "Stored key '" << key << "'." << std::endl;
         }
