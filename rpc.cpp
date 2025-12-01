@@ -1,6 +1,7 @@
 #include <arpa/inet.h>
 #include <cstring>
 #include <iostream>
+#include <netdb.h> // for gethostbyname, hostent
 #include <sys/socket.h>
 #include <unistd.h>
 #include "rpc.hpp"
@@ -21,7 +22,17 @@ RPCResponse rpc_send(const std::string &ip, int port, const std::string &msg)
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(port);
     if (inet_pton(AF_INET, ip.c_str(), &server_addr.sin_addr) <= 0)
-        return {false, "invalid IP address"};
+    {
+        // fallback: resolve hostname (if IP is a hostname, like in Docker)
+        struct hostent *he = gethostbyname(ip.c_str());
+        if (he == nullptr)
+        {
+            close(sock);
+            return {false, "invalid hostname or IP"};
+        }
+
+        std::memcpy(&server_addr.sin_addr, he->h_addr_list[0], he->h_length);
+    }
 
     if (connect(sock, (sockaddr *)&server_addr, sizeof(server_addr)) < 0)
     {
