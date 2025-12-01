@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -7,6 +8,7 @@
 #include <vector>
 
 using u64 = uint64_t;
+using Finger = std::tuple<u64, std::string, int>; // node_id, ip, port
 
 struct FingerEntry
 {
@@ -33,7 +35,13 @@ public:
 
     int m; // number of bits in identifier space
     std::vector<FingerEntry> finger_table;
+    std::vector<Finger> successor_list;
     std::unordered_map<std::string, std::string> data; // key-value store / files
+
+    std::mutex successor_list_mutex;
+    std::mutex finger_table_mutex;
+    std::mutex state_mutex; // protects predecessor and successor
+    std::mutex data_mutex; // protects data store
 
     ChordNode(std::string ip_address, int port_number, int m_bits);
 
@@ -46,11 +54,12 @@ public:
 
     void stabilize();
     void fix_fingers();
-    std::tuple<u64,std::string,int> find_successor(u64 id);
+    Finger find_successor(u64 id);
     void check_predecessor();
-    std::tuple<u64,std::string,int> closest_preceding_finger(u64 id);
+    Finger closest_preceding_finger(u64 id);
     void recompute_finger_table();
     bool is_alive(std::string check_ip, int check_port);
 };
 
 extern bool isLeaving; // global flag to indicate if node is leaving
+extern const int replication_factor; // number of replicas for each key

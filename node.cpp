@@ -6,10 +6,12 @@
 #include <unistd.h> // for close()
 #include "chord.hpp"
 #include "rpc.hpp"
+#include "utils.hpp"
 
 ChordNode *SELF = nullptr;
 std::atomic<bool> RUNNING = true;
 bool isLeaving = false;
+const int replication_factor = 3;
 
 void handle_rpc(int client_fd, const std::string &msg)
 {
@@ -72,6 +74,8 @@ void handle_rpc(int client_fd, const std::string &msg)
         int pport;
         ss >> pid >> pip >> pport;
 
+        std::lock_guard<std::mutex> lock(SELF->state_mutex);
+
         SELF->predecessor_id = pid;
         SELF->predecessor_ip = pip;
         SELF->predecessor_port = pport;
@@ -85,6 +89,8 @@ void handle_rpc(int client_fd, const std::string &msg)
         std::string sip;
         int sport;
         ss >> sid >> sip >> sport;
+
+        std::lock_guard<std::mutex> lock(SELF->state_mutex);
 
         SELF->successor_id = sid;
         SELF->successor_ip = sip;
@@ -101,9 +107,92 @@ void handle_rpc(int client_fd, const std::string &msg)
         if (!value.empty() && value[0] == ' ') 
             value.erase(0, 1); // remove leading space
 
-        SELF->data[key] = value;
+        u64 key_id = hash_str(key) % (1ULL << SELF->m);
+        auto [owner_id, owner_ip, owner_port] = SELF->find_successor(key_id);
 
-        std::string reply = "OK stored\n";
+        // if this node is not the owner, forward request
+        if (owner_id != SELF->id)
+        {
+            std::string msg = "PUT " + key + " " + value;;
+            RPCResponse resp = rpc_send(owner_ip, owner_port, msg);
+
+            if (resp.ok)
+            {
+                std::string reply = "OK forwarded\n";
+                send(client_fd, reply.c_str(), reply.size(), 0);
+            }
+            else
+            {
+                std::string reply = "ERR " + resp.body + "\n";
+                send(client_fd, reply.c_str(), reply.size(), 0);
+            }
+
+            close(client_fd);
+            return;
+        }
+
+        // this node is the owner, store and replicate
+        {
+            std::lock_guard<std::mutex> lock(SELF->data_mutex);
+
+            SELF->data[key] = value;
+        }
+
+        std::vector<Finger> local_successor_list;
+        {
+            std::lock_guard<std::mutex> lock(SELF->successor_list_mutex);
+            local_successor_list = SELF->successor_list; // copy to avoid holding lock during RPCs
+        }
+
+        for (int i = 0; i < replication_factor; ++i)
+        {
+            auto [replica_node_id, replica_node_ip, replica_node_port] = local_successor_list[i];
+
+            // don't replicate to self
+            if (replica_node_id == SELF->id)
+                continue;
+
+            std::string msg = "PUT_REPLICA " + key + " " + value;
+            rpc_send(replica_node_ip, replica_node_port, msg);
+        }
+
+        std::string reply = "OK stored_and_replicated\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
+    else if (cmd == "PUT_REPLICA")
+    {
+        std::string key, value;
+        ss >> key;
+        std::getline(ss, value); // read the rest of the line as value (allow spaces)
+        if (!value.empty() && value[0] == ' ') 
+            value.erase(0, 1); // remove leading space
+
+        // store replica locally
+        {
+            std::lock_guard<std::mutex> lock(SELF->data_mutex);
+
+            SELF->data[key] = value;
+        }
+
+        std::string reply = "OK replica_stored\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
+    else if (cmd == "PUT_DIRECT")
+    {
+        std::string key, value;
+        ss >> key;
+        std::getline(ss, value); // read the rest of the line as value (allow spaces)
+        if (!value.empty() && value[0] == ' ') 
+            value.erase(0, 1); // remove leading space
+
+        // store directly without owner check
+        {
+            std::lock_guard<std::mutex> lock(SELF->data_mutex);
+
+            SELF->data[key] = value;
+        }
+
+        std::string reply = "OK direct_stored\n";
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
     else if (cmd == "GET")
@@ -218,6 +307,11 @@ int main(int argc, char **argv)
                 value.erase(0, 1); // remove leading space
 
             if (value.empty())
+            {
+                std::cout << "Value cannot be empty." << std::endl;
+                continue;
+            }
+
             node.put(key, value);
             std::cout << "Stored key '" << key << "'." << std::endl;
         }

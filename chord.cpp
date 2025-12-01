@@ -2,6 +2,7 @@
 #include <iostream>
 #include <random>
 #include <sstream>
+#include <thread>
 #include "chord.hpp"
 #include "rpc.hpp"
 #include "utils.hpp"
@@ -27,6 +28,9 @@ ChordNode::ChordNode(std::string ip_address, int port_number, int m_bits)
         finger_table[k].node_ip = ip;
         finger_table[k].node_port = port;
     }
+
+    // Initialize successor list
+    successor_list.resize(replication_factor, Finger{id, ip, port});
 }
 
 void ChordNode::join(std::string bootstrap_ip, int bootstrap_port)
@@ -34,6 +38,8 @@ void ChordNode::join(std::string bootstrap_ip, int bootstrap_port)
     // first node in the network
     if (bootstrap_ip == ip && bootstrap_port == port)
     {
+        std::lock_guard<std::mutex> lock(state_mutex);
+
         predecessor_id = id;
         predecessor_ip = ip;
         predecessor_port = port;
@@ -70,10 +76,14 @@ void ChordNode::join(std::string bootstrap_ip, int bootstrap_port)
         return;
     }
 
-    successor_id = succ_id;
-    successor_ip = succ_ip;
-    successor_port = succ_port;
+    {
+        std::lock_guard<std::mutex> lock(state_mutex);
 
+        successor_id = succ_id;
+        successor_ip = succ_ip;
+        successor_port = succ_port;
+    }
+    // Request key transfer from new successor
     rpc_send(successor_ip, successor_port, "TRANSFER_KEYS " + std::to_string(id) + " " + ip + " " + std::to_string(port));
 
     std::cout << "[join] Joined the network. Successor: " << successor_id << " (" << successor_ip << ":" << successor_port << ")" << std::endl;
@@ -97,27 +107,87 @@ void ChordNode::leave()
 {
     isLeaving = true;
 
+    u64 successor_id_local;
+    std::string successor_ip_local;
+    int successor_port_local;
+    u64 predecessor_id_local;
+    std::string predecessor_ip_local;
+    int predecessor_port_local;
+    {
+        std::lock_guard<std::mutex> lock(state_mutex);
+
+        successor_id_local = successor_id;
+        successor_ip_local = successor_ip;
+        successor_port_local = successor_port;
+
+        predecessor_id_local = predecessor_id;
+        predecessor_ip_local = predecessor_ip;
+        predecessor_port_local = predecessor_port;
+    }
+
     if (successor_id != id)
     {
+        std::vector<std::pair<std::string, std::string>> primary_data_copy;
+
+        {
+            std::lock_guard<std::mutex> lock(data_mutex);
+
+            for (const auto &kv : data)
+            {
+                u64 key_id = hash_str(kv.first) % (1ULL << m);
+
+                // Find true owner of the key
+                auto [owner_id, owner_ip, owner_port] = find_successor(key_id);
+
+                // only transfer if this node is the owner (i.e. primary replica)
+                if (owner_id == id)
+                    primary_data_copy.emplace_back(kv.first, kv.second);
+            }
+            
+        }
+        
         for (const auto &kv : data)
         {
             // Transfer all keys to successor
             std::string msg = "PUT " + kv.first + " " + kv.second;
-            rpc_send(successor_ip, successor_port, msg);
+            rpc_send(successor_ip_local, successor_port_local, msg);
         }
 
-        data.clear();
+        // Remove transferred keys from local store
+        {
+            std::lock_guard<std::mutex> lock(data_mutex);
+            
+            for (const auto &kv : primary_data_copy)
+                data.erase(kv.first);
+        }
 
-        // Tell successor to update its predecessor
-        std::string notify_msg = "SET_PREDECESSOR " + std::to_string(predecessor_id) + " " + predecessor_ip + " " + std::to_string(predecessor_port);
-        rpc_send(successor_ip, successor_port, notify_msg);
+        if (successor_id_local != id)
+        {
+            // Tell successor to update its predecessor
+            std::string notify_msg = "SET_PREDECESSOR " + std::to_string(predecessor_id_local) + " " + predecessor_ip_local + " " + std::to_string(predecessor_port_local);
+            rpc_send(successor_ip_local, successor_port_local, notify_msg);
+        }
+
     }
 
-    if (predecessor_id != id)
+    if (predecessor_id_local != id)
     {
         // Tell predecessor to update its successor
-        std::string notify_msg = "SET_SUCCESSOR " + std::to_string(successor_id) + " " + successor_ip + " " + std::to_string(successor_port);
-        rpc_send(predecessor_ip, predecessor_port, notify_msg);
+        std::string notify_msg = "SET_SUCCESSOR " + std::to_string(successor_id_local) + " " + successor_ip_local + " " + std::to_string(successor_port_local);
+        rpc_send(predecessor_ip_local, predecessor_port_local, notify_msg);
+    }
+
+    // Clear predecessor and successor
+    {
+        std::lock_guard<std::mutex> lock(state_mutex);
+
+        predecessor_id = id;
+        predecessor_ip = ip;
+        predecessor_port = port;
+
+        successor_id = id;
+        successor_ip = ip;
+        successor_port = port;
     }
 
     RUNNING = false; // stop RPC listener
@@ -130,19 +200,40 @@ void ChordNode::put(const std::string &key, const std::string &value)
     u64 key_id = hash_str(key) % (1ULL << m);
     auto [owner_id, owner_ip, owner_port] = find_successor(key_id);
 
-    // if this node is the owner, store locally
-    if (owner_id == id)
+    // if this node is not the owner, forward request
+    if (owner_id != id)
     {
-        data[key] = value;
+        std::string msg = "PUT " + key + " " + value;
+        RPCResponse resp = rpc_send(owner_ip, owner_port, msg);
+
+        if (!resp.ok)
+        {
+            // handle error (e.g., retry or log)
+            std::cerr << "[put] Failed to store key '" << key << "': " << resp.body << std::endl;
+        }
+        return;
+    }
+
+    // store locally
+    data[key] = value;
+
+    std::vector<Finger> local_successor_list;
+    {
+        std::lock_guard<std::mutex> lock(successor_list_mutex);
+
+        local_successor_list = successor_list; // copy to avoid holding lock during RPCs
     }
     
-    std::string msg = "PUT " + key + " " + value;
-    RPCResponse resp = rpc_send(owner_ip, owner_port, msg);
-
-    if (!resp.ok)
+    for (int i = 0; i < replication_factor; ++i)
     {
-        // handle error (e.g., retry or log)
-        std::cerr << "[put] Failed to store key '" << key << "': " << resp.body << std::endl;
+        auto [replica_node_id, replica_node_ip, replica_node_port] = local_successor_list[i];
+
+        // don't replicate to self
+        if (replica_node_id == id)
+            continue;
+
+        std::string msg = "PUT_REPLICA " + key + " " + value;
+        rpc_send(replica_node_ip, replica_node_port, msg);
     }
 }
 
@@ -179,42 +270,84 @@ std::string ChordNode::get(const std::string &key)
 
 void ChordNode::transfer_keys(u64 new_node_id, std::string new_node_ip, int new_node_port)
 {
-    std::vector<std::string> keys_to_transfer;
-    keys_to_transfer.reserve(data.size());
-
-    // Identify keys that should be transferred to the new node
-    for (const auto &kv : data)
+    std::vector<std::string> keys_snapshot;
     {
-        u64 key_id = hash_str(kv.first) % (1ULL << m);
+        std::lock_guard<std::mutex> lock(data_mutex);
 
-        // if key is in (predecessor_id, new_node_id]
-        if (in_interval_inclusive(predecessor_id, new_node_id, key_id))
+        keys_snapshot.reserve(data.size());
+
+        for (const auto &kv : data)
+            keys_snapshot.push_back(kv.first);
+    }
+    
+    std::vector<std::pair<std::string, std::string>> keys_to_transfer;
+    // Identify keys that should be transferred to the new node
+    for (const auto &key : keys_snapshot)
+    {
+        u64 key_id = hash_str(key) % (1ULL << m);
+
+        // Find true owner of the key
+        auto [owner_id, owner_ip, owner_port] = find_successor(key_id);
+
+        // only transfer if this node is the owner (i.e. primary replica)
+        if (owner_id != id)
+            continue;
+
+        // if key is not in (predecessor_id, new_node_id]
+        if (!in_interval_inclusive(predecessor_id, new_node_id, key_id))
+            continue;
+
+        std::string value;
         {
-            keys_to_transfer.push_back(kv.first);
+            std::lock_guard<std::mutex> dlock(data_mutex);
+
+            value = data[key];
         }
+
+        keys_to_transfer.emplace_back(key, value);
     }
 
     // Transfer keys to the new node
-    for (const auto &key : keys_to_transfer)
+    for (const auto &kv : keys_to_transfer)
     {
-        std::string value = data[key];
+        bool transferred = false;
+        const int max_retries = 3;
 
-        std::string msg = "PUT " + key + " " + value;
-        RPCResponse resp = rpc_send(new_node_ip, new_node_port, msg);
-
-        if (resp.ok)
+        for (int attempt = 0; attempt < max_retries && !transferred; ++attempt)
         {
-            data.erase(key);
+            std::string msg = "PUT_DIRECT " + kv.first + " " + kv.second;
+            RPCResponse resp = rpc_send(new_node_ip, new_node_port, msg);
+
+            if (resp.ok)
+            {
+                transferred = true;
+                break;
+            }
+            else
+            {
+                // std::cerr << "[transfer_keys] Attempt " << (attempt + 1) << " failed to transfer key '" << kv.first << "': " << resp.body << std::endl;
+                std::this_thread::sleep_for(std::chrono::milliseconds(150 * (attempt + 1))); // brief pause before retry
+            }
+        }
+
+        if (transferred)
+        {
+            std::lock_guard<std::mutex> dlock(data_mutex);
+            
+            // Remove key from local store after successful transfer
+            data.erase(kv.first);
         }
         else
         {
-            std::cerr << "[transfer_keys] Failed to transfer key '" << key << "': " << resp.body << std::endl;
+            std::cerr << "[transfer_keys] Failed to transfer key '" << kv.first << "' after " << max_retries << " attempts: " << new_node_ip << ":" << new_node_port << std::endl;
         }
     }
 }
 
 void ChordNode::notify(u64 nid, std::string nip, int nport)
 {
+    std::lock_guard<std::mutex> lock(state_mutex);
+    
     if (predecessor_id == id ||
         in_interval_open(predecessor_id, id, nid))
     {
@@ -230,9 +363,21 @@ void ChordNode::stabilize()
     if (isLeaving)
         return;
 
+    u64 succ_id_local;
+    std::string succ_ip_local;
+    int succ_port_local;
+
+    {
+        std::lock_guard<std::mutex> lock(state_mutex);
+
+        succ_id_local = successor_id;
+        succ_ip_local = successor_ip;
+        succ_port_local = successor_port;
+    }
+
     // Get successor's predecessor
     std::string msg = "GET_PREDECESSOR";
-    RPCResponse resp = rpc_send(successor_ip, successor_port, msg);
+    RPCResponse resp = rpc_send(succ_ip_local, succ_port_local, msg);
 
     // If successor failed to respond, we could try to find the next alive finger
     if (!resp.ok)
@@ -240,14 +385,19 @@ void ChordNode::stabilize()
         bool found_alive = false;
         for (int k = 0; k < m; ++k)
         {
-            if (finger_table[k].node_id == id)
-                continue;
-
-            if (is_alive(finger_table[k].node_ip, finger_table[k].node_port))
+            FingerEntry f;
             {
-                successor_id = finger_table[k].node_id;
-                successor_ip = finger_table[k].node_ip;
-                successor_port = finger_table[k].node_port;
+                std::lock_guard<std::mutex> lock(finger_table_mutex);
+                f = finger_table[k];
+            }
+
+            if (f.node_id != id && is_alive(f.node_ip, f.node_port))
+            {
+                std::lock_guard<std::mutex> lock(state_mutex);
+                
+                successor_id = f.node_id;
+                successor_ip = f.node_ip;
+                successor_port = f.node_port;
 
                 found_alive = true;
                 break;
@@ -257,6 +407,8 @@ void ChordNode::stabilize()
         // If no fingers are alive, point to self
         if (!found_alive)
         {
+            std::lock_guard<std::mutex> lock(state_mutex);
+
             successor_id = id;
             successor_ip = ip;
             successor_port = port;
@@ -281,11 +433,19 @@ void ChordNode::stabilize()
     }
 
     // Check if successor's predecessor is a better successor
-    if (succ_pred_id != 0 &&
-        in_interval_open(id, successor_id, succ_pred_id))
+    bool better_successor = false;
     {
-        if (!is_alive(succ_pred_ip, succ_pred_port))
-            return;
+        std::lock_guard<std::mutex> lock(state_mutex);
+
+        if (succ_pred_id != 0 &&
+            in_interval_open(id, successor_id, succ_pred_id))
+        {
+            better_successor = true;
+        }
+    }
+    if (better_successor && is_alive(succ_pred_ip, succ_pred_port))
+    {
+        std::lock_guard<std::mutex> lock(state_mutex);
 
         successor_id = succ_pred_id;
         successor_ip = succ_pred_ip;
@@ -295,14 +455,67 @@ void ChordNode::stabilize()
     // Notify successor that we might be its predecessor
     std::string notify_msg = "NOTIFY " + std::to_string(id) + " " + ip + " " + std::to_string(port);
     rpc_send(successor_ip, successor_port, notify_msg);
+
+    // Replication Repair Pass
+    std::vector<Finger> local_successor_list;
+    {
+        std::lock_guard<std::mutex> lock(successor_list_mutex);
+
+        local_successor_list = successor_list; // copy to avoid holding lock during RPCs
+    }
+
+    std::vector<std::pair<std::string, std::string>> primary_keys;
+    {
+        std::lock_guard<std::mutex> lock(data_mutex);
+
+        for (const auto &kv : data)
+        {
+            u64 key_id = hash_str(kv.first) % (1ULL << m);
+
+            // Find true owner of the key
+            auto [owner_id, owner_ip, owner_port] = find_successor(key_id);
+
+            // only consider primary replicas
+            if (owner_id == id)
+                primary_keys.emplace_back(kv.first, kv.second);
+        }
+    }
+
+    // Re-replicate primary keys
+    for (const auto &kv : primary_keys)
+    {
+        for (int i = 0; i < replication_factor; ++i)
+        {
+            auto [replica_node_id, replica_node_ip, replica_node_port] = local_successor_list[i];
+
+            // don't replicate to self
+            if (replica_node_id == id)
+                continue;
+
+            std::string msg = "PUT_REPLICA " + kv.first + " " + kv.second;
+            rpc_send(replica_node_ip, replica_node_port, msg);
+        }
+    }
 }
 
-std::tuple<u64, std::string, int> ChordNode::find_successor(u64 id)
+Finger ChordNode::find_successor(u64 id)
 {
-    // Check if id is in (this->id, successor_id]
-    if (in_interval_inclusive(this->id, successor_id, id))
+    u64 succ_id_local;
+    std::string succ_ip_local;
+    int succ_port_local;
+    
     {
-        return {successor_id, successor_ip, successor_port};
+        std::lock_guard<std::mutex> lock(state_mutex);
+
+        succ_id_local = successor_id;
+        succ_ip_local = successor_ip;
+        succ_port_local = successor_port;
+    }
+    
+    // Check if id is in (this->id, successor_id]
+    if (in_interval_inclusive(this->id, succ_id_local, id))
+    {
+        return {succ_id_local, succ_ip_local, succ_port_local};
     }
     
     // otherwise pick the closest preceding finger
@@ -313,7 +526,7 @@ std::tuple<u64, std::string, int> ChordNode::find_successor(u64 id)
     RPCResponse resp = rpc_send(next_ip, next_port, msg);
 
     if (!resp.ok)
-        return {successor_id, successor_ip, successor_port}; // fallback to current successor
+        return {succ_id_local, succ_ip_local, succ_port_local}; // fallback to current successor
 
     u64 succ_id;
     std::string succ_ip;
@@ -327,30 +540,61 @@ std::tuple<u64, std::string, int> ChordNode::find_successor(u64 id)
     return {succ_id, succ_ip, succ_port};
 }
 
-std::tuple<u64, std::string, int> ChordNode::closest_preceding_finger(u64 id)
+Finger ChordNode::closest_preceding_finger(u64 id)
 {
+    std::vector<FingerEntry> local_finger_table;
+    {
+        std::lock_guard<std::mutex> lock(finger_table_mutex);
+        
+        local_finger_table = finger_table; // copy to avoid holding lock during is_alive checks
+    }
+
+    u64 self_id_local;
+    std::string self_ip_local;
+    int self_port_local;
+    {
+        std::lock_guard<std::mutex> lock(state_mutex);
+
+        self_id_local = this->id;
+        self_ip_local = this->ip;
+        self_port_local = this->port;
+    }
+    
     for (int k = m - 1; k >= 0; --k)
     {
-        u64 f_id = finger_table[k].node_id;
-        if (in_interval_open(this->id, id, f_id))
+        u64 f_id = local_finger_table[k].node_id;
+        if (in_interval_open(self_id_local, id, f_id))
         {
-            if (is_alive(finger_table[k].node_ip, finger_table[k].node_port))
-                return {finger_table[k].node_id, finger_table[k].node_ip, finger_table[k].node_port};
+            if (is_alive(local_finger_table[k].node_ip, local_finger_table[k].node_port))
+                return {local_finger_table[k].node_id, local_finger_table[k].node_ip, local_finger_table[k].node_port};
         }
     }
 
     // If no finger found, return self
-    return {this->id, this->ip, this->port};
+    return {self_id_local, self_ip_local, self_port_local};
 }
 
 void ChordNode::check_predecessor()
 {
-    if (predecessor_id == id)
+    u64 predecessor_id_local;
+    std::string predecessor_ip_local;
+    int predecessor_port_local;
+    {
+        std::lock_guard<std::mutex> lock(state_mutex);
+
+        predecessor_id_local = predecessor_id;
+        predecessor_ip_local = predecessor_ip;
+        predecessor_port_local = predecessor_port;
+    }
+    
+    if (predecessor_id_local == id)
         return;
 
     // If predecessor is dead, clear it
-    if (!is_alive(predecessor_ip, predecessor_port))
+    if (!is_alive(predecessor_ip_local, predecessor_port_local))
     {
+        std::lock_guard<std::mutex> lock(state_mutex);
+        
         predecessor_id = id;
         predecessor_ip = ip;
         predecessor_port = port;
@@ -360,14 +604,69 @@ void ChordNode::check_predecessor()
 void ChordNode::fix_fingers()
 {
     static int next_finger = 0;
-    u64 start = finger_table[next_finger].start;
+    u64 start;
+    
+    {
+        std::lock_guard<std::mutex> lock(finger_table_mutex);
+
+        start = finger_table[next_finger].start;
+    }
 
     auto [finger_id, finger_ip, finger_port] = find_successor(start);
-    finger_table[next_finger].node_id = finger_id;
-    finger_table[next_finger].node_ip = finger_ip;
-    finger_table[next_finger].node_port = finger_port;
 
+    // Update finger table entry
+    {
+        std::lock_guard<std::mutex> lock(finger_table_mutex);
+    
+        finger_table[next_finger].node_id = finger_id;
+        finger_table[next_finger].node_ip = finger_ip;
+        finger_table[next_finger].node_port = finger_port;
+    
+    }
+    
     next_finger = (next_finger + 1) % m;
+
+    // Rebuild successor list for replication
+    {
+        std::lock_guard<std::mutex> sl_lock(successor_list_mutex);
+
+        successor_list.clear();
+    
+        // if this node is the only node, fill successor list with self
+        if (successor_id == id)
+        {
+            for (int i = 0; i < replication_factor; ++i)
+                successor_list.emplace_back(id, ip, port);
+    
+            return;
+        }
+    
+        // Start from immediate successor
+        Finger current_successor = {successor_id, successor_ip, successor_port};
+    
+        for (int i = 0; i < replication_factor; ++i)
+        {
+            successor_list.push_back(current_successor);
+    
+            u64 curr_id = std::get<0>(current_successor);
+            u64 next_id = (curr_id + 1) % (1ULL << m);
+    
+            // find successor of next_id (which is the successor of curr_id)
+            try
+            {
+                current_successor = find_successor(next_id);
+            }
+            catch(...)
+            {
+               // if RPC fails, fill remaining slots with self
+                  for (int j = i + 1; j < replication_factor; ++j)
+                    successor_list.emplace_back(id, ip, port);
+    
+                break;
+            }
+            
+        }
+    }
 }
 
 void ChordNode::recompute_finger_table()
@@ -388,6 +687,8 @@ bool ChordNode::is_alive(std::string check_ip, int check_port)
 
     if (!resp.ok)
     {
+        std::lock_guard<std::mutex> lock(finger_table_mutex);
+        
         // Remove dead node from finger table
         for (int k = 0; k < m; ++k)
         {
