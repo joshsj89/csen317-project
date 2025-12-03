@@ -316,6 +316,20 @@ int main(int argc, char **argv)
     ChordNode node(ip, port, m_bits);
     SELF = &node;
 
+    const char *bootstrap_env = std::getenv("BOOTSTRAP");
+    if (bootstrap_env != nullptr)
+    {
+        std::string bootstrap_str(bootstrap_env);
+        
+        std::stringstream ss(bootstrap_str);
+
+        std::string bootstrap_ip;
+        int bootstrap_port;
+        ss >> bootstrap_ip >> bootstrap_port;
+
+        node.join(bootstrap_ip, bootstrap_port);
+    }
+
     // Start RPC listener thread
     int server_fd = rpc_start_listener(port);
 
@@ -334,93 +348,105 @@ int main(int argc, char **argv)
         }
     });
 
-    // CLI loop
-    while (true)
+    const char *autorun_env = std::getenv("AUTORUN");
+    if (autorun_env != nullptr)
     {
-        std::cout << "ChordNode> ";
-        // std::string line;
-        // if (!std::getline(std::cin, line))
-        //     break;
-        // std::stringstream ss(line);
-        std::string cmd;
-        std::cin >> cmd;
-
-        if (cmd == "join")
+        // Skip CLI
+        while (RUNNING)
         {
-            std::string bootstrap_ip;
-            int bootstrap_port;
-            std::cin >> bootstrap_ip >> bootstrap_port;
-            node.join(bootstrap_ip, bootstrap_port);
-            // std::cout << "Joined the network via " << bootstrap_ip << ":" << bootstrap_port << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(1));
         }
-        else if (cmd == "leave")
+    }
+    else
+    {
+        // CLI loop
+        while (true)
         {
-            node.leave();
-            break;
-        }
-        else if (cmd == "info")
-        {
-            std::cout << "Node ID: " << node.id << std::endl;
-            std::cout << "IP: " << node.ip << std::endl;
-            std::cout << "Port: " << node.port << std::endl;
-            std::cout << "Predecessor: " << node.predecessor_id << " (" << node.predecessor_ip << ":" << node.predecessor_port << ")" << std::endl;
-            std::cout << "Successor: " << node.successor_id << " (" << node.successor_ip << ":" << node.successor_port << ")" << std::endl;
-        }
-        else if (cmd == "put")
-        {
-            std::string key, value;
-            std::cin >> key;
-            std::getline(std::cin, value); // read the rest of the line as value (allow spaces)
-            if (!value.empty() && value[0] == ' ') 
-                value.erase(0, 1); // remove leading space
-
-            if (value.empty())
+            std::cout << "ChordNode> ";
+            // std::string line;
+            // if (!std::getline(std::cin, line))
+            //     break;
+            // std::stringstream ss(line);
+            std::string cmd;
+            std::cin >> cmd;
+    
+            if (cmd == "join")
             {
-                std::cout << "Value cannot be empty." << std::endl;
-                continue;
+                std::string bootstrap_ip;
+                int bootstrap_port;
+                std::cin >> bootstrap_ip >> bootstrap_port;
+                node.join(bootstrap_ip, bootstrap_port);
+                // std::cout << "Joined the network via " << bootstrap_ip << ":" << bootstrap_port << std::endl;
             }
-
-            node.put(key, value);
-            std::cout << "Stored key '" << key << "'." << std::endl;
-        }
-        else if (cmd == "get")
-        {
-            std::string key;
-            std::cin >> key;
-            
-            std::string value = node.get(key);
-
-            if (!value.empty())
-                std::cout << key << " => " << value << std::endl;
+            else if (cmd == "leave")
+            {
+                node.leave();
+                break;
+            }
+            else if (cmd == "info")
+            {
+                std::cout << "Node ID: " << node.id << std::endl;
+                std::cout << "IP: " << node.ip << std::endl;
+                std::cout << "Port: " << node.port << std::endl;
+                std::cout << "Predecessor: " << node.predecessor_id << " (" << node.predecessor_ip << ":" << node.predecessor_port << ")" << std::endl;
+                std::cout << "Successor: " << node.successor_id << " (" << node.successor_ip << ":" << node.successor_port << ")" << std::endl;
+            }
+            else if (cmd == "put")
+            {
+                std::string key, value;
+                std::cin >> key;
+                std::getline(std::cin, value); // read the rest of the line as value (allow spaces)
+                if (!value.empty() && value[0] == ' ') 
+                    value.erase(0, 1); // remove leading space
+    
+                if (value.empty())
+                {
+                    std::cout << "Value cannot be empty." << std::endl;
+                    continue;
+                }
+    
+                node.put(key, value);
+                std::cout << "Stored key '" << key << "'." << std::endl;
+            }
+            else if (cmd == "get")
+            {
+                std::string key;
+                std::cin >> key;
+                
+                std::string value = node.get(key);
+    
+                if (!value.empty())
+                    std::cout << key << " => " << value << std::endl;
+                else
+                    std::cout << "Key '" << key << "' not found." << std::endl;
+            }
+            else if (cmd == "files")
+            {
+                std::cout << "Stored files/keys:" << std::endl;
+                for (const auto &kv : node.data)
+                {
+                    std::cout << "  " << kv.first << " => " << kv.second << std::endl;
+                }
+            }
+            else if (cmd == "help")
+            {
+                std::cout << "Commands:\n";
+                std::cout << "  join <bootstrap_ip> <bootstrap_port> - Join the Chord network\n";
+                std::cout << "  leave                               - Leave the Chord network\n";
+                std::cout << "  info                                - Display node information\n";
+                std::cout << "  put <key> <value>                   - Store a key-value pair\n";
+                std::cout << "  get <key>                           - Retrieve value for a key\n";
+                std::cout << "  files                               - List stored keys\n";
+                std::cout << "  exit                                - Exit the program\n";
+            }
+            else if (cmd == "exit")
+            {
+                break;
+            }
             else
-                std::cout << "Key '" << key << "' not found." << std::endl;
-        }
-        else if (cmd == "files")
-        {
-            std::cout << "Stored files/keys:" << std::endl;
-            for (const auto &kv : node.data)
             {
-                std::cout << "  " << kv.first << " => " << kv.second << std::endl;
+                std::cout << "Unknown command." << std::endl;
             }
-        }
-        else if (cmd == "help")
-        {
-            std::cout << "Commands:\n";
-            std::cout << "  join <bootstrap_ip> <bootstrap_port> - Join the Chord network\n";
-            std::cout << "  leave                               - Leave the Chord network\n";
-            std::cout << "  info                                - Display node information\n";
-            std::cout << "  put <key> <value>                   - Store a key-value pair\n";
-            std::cout << "  get <key>                           - Retrieve value for a key\n";
-            std::cout << "  files                               - List stored keys\n";
-            std::cout << "  exit                                - Exit the program\n";
-        }
-        else if (cmd == "exit")
-        {
-            break;
-        }
-        else
-        {
-            std::cout << "Unknown command." << std::endl;
         }
     }
 
