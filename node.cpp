@@ -224,6 +224,74 @@ void handle_rpc(int client_fd, const std::string &msg)
         std::string reply = "OK keys_transferred\n";
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
+    else if (cmd == "DOCKER_JOIN")
+    {
+        std::string bootstrap_ip;
+        int bootstrap_port;
+        ss >> bootstrap_ip >> bootstrap_port;
+
+        SELF->join(bootstrap_ip, bootstrap_port);
+
+        std::string reply = "OK joined\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
+    else if (cmd == "DOCKER_LEAVE")
+    {
+        SELF->leave();
+    }
+    else if (cmd == "DOCKER_INFO")
+    {
+        std::cout << "Node ID: " << SELF->id << std::endl;
+        std::cout << "IP: " << SELF->ip << std::endl;
+        std::cout << "Port: " << SELF->port << std::endl;
+        std::cout << "Predecessor: " << SELF->predecessor_id << " (" << SELF->predecessor_ip << ":" << SELF->predecessor_port << ")" << std::endl;
+        std::cout << "Successor: " << SELF->successor_id << " (" << SELF->successor_ip << ":" << SELF->successor_port << ")" << std::endl;
+    }
+    else if (cmd == "DOCKER_PUT")
+    {
+        std::string key, value;
+        ss >> key;
+        std::getline(ss, value); // read the rest of the line as value (allow spaces)
+        if (!value.empty() && value[0] == ' ') 
+            value.erase(0, 1); // remove leading space
+
+        if (value.empty())
+        {
+            std::cout << "Value cannot be empty." << std::endl;
+            close(client_fd);
+            return;
+        }
+
+        SELF->put(key, value);
+
+        std::cout << "Stored key '" << key << "'." << std::endl;
+
+        std::string reply = "OK stored\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
+    else if (cmd == "DOCKER_GET")
+    {
+        std::string key;
+        ss >> key;
+
+        std::string value = SELF->get(key);
+
+        if (!value.empty())
+            std::cout << key << " => " << value << std::endl;
+        else
+            std::cout << "Key '" << key << "' not found." << std::endl;
+
+        std::string reply = "OK retrieved\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
+    else if (cmd == "DOCKER_FILES")
+    {
+        std::cout << "Stored files/keys:" << std::endl;
+        for (const auto &kv : SELF->data)
+        {
+            std::cout << "  " << kv.first << " => " << kv.second << std::endl;
+        }
+    }
     else
     {
         std::string reply = "ERR unknown_command\n";
