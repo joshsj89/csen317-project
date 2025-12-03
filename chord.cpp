@@ -208,8 +208,18 @@ void ChordNode::put(const std::string &key, const std::string &value)
 
         if (!resp.ok)
         {
-            // handle error (e.g., retry or log)
-            std::cerr << "[put] Failed to store key '" << key << "': " << resp.body << std::endl;
+            const int max_retries = 3;
+            bool success = false;
+
+            for (int attempt = 0; attempt < max_retries && !success; ++attempt)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100 * (attempt + 1))); // brief pause before retry
+
+                resp = rpc_send(owner_ip, owner_port, msg);
+
+                if (resp.ok)
+                    success = true;
+            }
         }
         return;
     }
@@ -256,9 +266,28 @@ std::string ChordNode::get(const std::string &key)
 
     if (!resp.ok)
     {
-        // handle error (e.g., retry or log)
-        std::cerr << "[get] Failed to retrieve key '" << key << "': " << resp.body << std::endl;
-        return "";
+        if (resp.body == "not_found")
+            return ""; // key not found
+
+        const int max_retries = 3;
+        bool success = false;
+
+        for (int attempt = 0; attempt < max_retries && !success; ++attempt)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100 * (attempt + 1))); // brief pause before retry
+
+            resp = rpc_send(owner_ip, owner_port, msg);
+
+            if (resp.ok)
+            {
+                success = true;
+                break;
+            }
+            else if (resp.body == "not_found")
+            {
+                return ""; // key not found
+            }
+        }
     }
 
     // remove the newline at the end if present
