@@ -10,7 +10,9 @@
 
 ChordNode *SELF = nullptr;
 std::atomic<bool> RUNNING = true;
+bool joining = false;
 bool isLeaving = false;
+bool has_transferred_keys = false;
 const int replication_factor = 3;
 
 void handle_rpc(int client_fd, const std::string &msg)

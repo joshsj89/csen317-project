@@ -59,7 +59,15 @@ public:
     Finger closest_preceding_finger(u64 id);
     void recompute_finger_table();
     bool is_alive(std::string check_ip, int check_port);
+
+private:
+    const int max_retries = 3;
+    bool pending_key_transfer = false;
+    int stable_rounds = 0; // number of consecutive stable rounds
+    static constexpr int STABLE_ROUNDS_REQUIRED = 3;
 };
 
+extern bool joining; // global flag to indicate if node is joining
 extern bool isLeaving; // global flag to indicate if node is leaving
+extern bool has_transferred_keys; // global flag to indicate if keys have been transferred
 extern const int replication_factor; // number of replicas for each key
