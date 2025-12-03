@@ -10,13 +10,13 @@ RPCResponse rpc_send(const std::string &ip, int port, const std::string &msg)
 {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0)
-        return {false, "socket creation failed"};
+        return {false, "socket_error"};
 
-    struct timeval tv;
-    tv.tv_sec = 1;  // 1 second timeout
-    tv.tv_usec = 0;
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof tv);
+    struct timeval timeout;
+    timeout.tv_sec = 1;  // 1 second timeout
+    timeout.tv_usec = 0;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof timeout);
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof timeout);
 
     sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
@@ -37,7 +37,7 @@ RPCResponse rpc_send(const std::string &ip, int port, const std::string &msg)
     if (connect(sock, (sockaddr *)&server_addr, sizeof(server_addr)) < 0)
     {
         close(sock);
-        return {false, "connection failed"};
+        return {false, "connection_timeout"};
     }
 
     send(sock, msg.c_str(), msg.size(), 0);
@@ -48,7 +48,7 @@ RPCResponse rpc_send(const std::string &ip, int port, const std::string &msg)
     if (n < 0)
     {
         close(sock);
-        return {false, "receive failed"};
+        return {false, "receive_timeout"};
     }
 
     buffer[n] = '\0';
@@ -70,7 +70,7 @@ int rpc_start_listener(int port)
         exit(1);
     }
 
-    int opt = 1;
+    int opt = 1; // allow address reuse
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     sockaddr_in address{};
@@ -113,10 +113,10 @@ void rpc_accept_loop(int server_fd, void (*handler)(int, const std::string&))
             continue;
         }
 
-        struct timeval tv;
-        tv.tv_sec = 1;  // 1 second timeout
-        tv.tv_usec = 0;
-        setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+        struct timeval timeout;
+        timeout.tv_sec = 1;  // 1 second timeout
+        timeout.tv_usec = 0;
+        setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
 
         char buffer[4096];
         int n = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
