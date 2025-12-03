@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <optional>
@@ -56,6 +57,7 @@ public:
     void fix_fingers();
     Finger find_successor(u64 id);
     void check_predecessor();
+    void check_successor();
     Finger closest_preceding_finger(u64 id);
     void recompute_finger_table();
     bool is_alive(std::string check_ip, int check_port);
@@ -67,7 +69,7 @@ private:
     static constexpr int STABLE_ROUNDS_REQUIRED = 3;
 };
 
-extern bool joining; // global flag to indicate if node is joining
-extern bool isLeaving; // global flag to indicate if node is leaving
-extern bool has_transferred_keys; // global flag to indicate if keys have been transferred
+extern std::atomic<bool> joining; // global flag to indicate if node is joining
+extern std::atomic<bool> isLeaving; // global flag to indicate if node is leaving
+extern std::atomic<bool> has_transferred_keys; // global flag to indicate if keys have been transferred
 extern const int replication_factor; // number of replicas for each key

@@ -531,23 +531,26 @@ void ChordNode::stabilize()
     if (!resp.ok)
     {
         bool found_alive = false;
+        std::vector<FingerEntry> local_finger_table;
         {
             std::lock_guard<std::mutex> flock(finger_table_mutex);
 
-            for (int k = 0; k < m; ++k)
+            local_finger_table = finger_table; // copy to avoid holding lock during RPCs
+        }
+
+        for (int k = 0; k < m; ++k)
+        {
+            auto f = local_finger_table[k];
+            if (f.node_id != id && is_alive(f.node_ip, f.node_port))
             {
-                auto f = finger_table[k];
-                if (f.node_id != id && is_alive(f.node_ip, f.node_port))
-                {
-                    std::lock_guard<std::mutex> slock(state_mutex);
-                    
-                    successor_id = f.node_id;
-                    successor_ip = f.node_ip;
-                    successor_port = f.node_port;
-    
-                    found_alive = true;
-                    break;
-                }
+                std::lock_guard<std::mutex> slock(state_mutex);
+                
+                successor_id = f.node_id;
+                successor_ip = f.node_ip;
+                successor_port = f.node_port;
+
+                found_alive = true;
+                break;
             }
         }
 
@@ -804,6 +807,7 @@ void ChordNode::check_predecessor()
         predecessor_port_local = predecessor_port;
     }
     
+    // If predecessor is self or null, nothing to do
     if (predecessor_id_local == 0 || predecessor_id_local == id)
         return;
 
@@ -815,6 +819,60 @@ void ChordNode::check_predecessor()
         predecessor_id = 0;
         predecessor_ip = "";
         predecessor_port = 0;
+    }
+}
+
+void ChordNode::check_successor()
+{
+    u64 successor_id_local;
+    std::string successor_ip_local;
+    int successor_port_local;
+    {
+        std::lock_guard<std::mutex> lock(state_mutex);
+
+        successor_id_local = successor_id;
+        successor_ip_local = successor_ip;
+        successor_port_local = successor_port;
+    }
+
+    // If successor is self, nothing to do
+    if (successor_id_local == id)
+        return;
+
+    // If successor is alive, nothing to do
+    if (is_alive(successor_ip_local, successor_port_local))
+        return;
+
+    // Try to find the next alive finger as new successor
+    bool found_alive = false;
+    {
+        std::lock_guard<std::mutex> flock(finger_table_mutex);
+
+        for (int k = 0; k < m; ++k)
+        {
+            auto f = finger_table[k];
+            if (f.node_id != id && is_alive(f.node_ip, f.node_port))
+            {
+                std::lock_guard<std::mutex> slock(state_mutex);
+                
+                successor_id = f.node_id;
+                successor_ip = f.node_ip;
+                successor_port = f.node_port;
+
+                found_alive = true;
+                break;
+            }
+        }
+    }
+
+    // If no fingers are alive, point to self
+    if (!found_alive)
+    {
+        std::lock_guard<std::mutex> slock(state_mutex);
+        
+        successor_id = id;
+        successor_ip = ip;
+        successor_port = port;
     }
 }
 

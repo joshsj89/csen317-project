@@ -3,6 +3,7 @@
 #include <iostream>
 #include <netdb.h> // for gethostbyname, hostent
 #include <sys/socket.h>
+#include <thread>
 #include <unistd.h>
 #include "rpc.hpp"
 
@@ -105,11 +106,16 @@ void rpc_accept_loop(int server_fd, void (*handler)(int, const std::string&))
 
         // Check if RUNNING flag was cleared during blocking accept call
         if (!RUNNING)
+        {
+            if (client_fd >= 0)
+                close(client_fd);
+
             break;
+        }
 
         if (client_fd < 0)
         {
-            std::cerr << "Accept failed\n";
+            // std::cerr << "Accept failed\n";
             continue;
         }
 
