@@ -1,13 +1,22 @@
 CXX 		= g++ -std=c++17
 CXXFLAGS 	= -g -Wall -Wextra
-EXTRAS		= chord.cpp node.cpp rpc.cpp utils.cpp
-TARGET		= chord_sim
+CHORD_EXTRAS	= chord.cpp node.cpp rpc.cpp utils.cpp
+KADEMLIA_EXTRAS	= kademlia.cpp
+CHORD_TARGET	= chord_sim
+KADEMLIA_TARGET	= kademlia_sim
+KADEMLIA_EXP	= kademlia_experiment
 
 
-all: 		$(TARGET)
+all: 		$(CHORD_TARGET) $(KADEMLIA_TARGET) $(KADEMLIA_EXP)
 
-$(TARGET): 	$(EXTRAS)
-		$(CXX) $(CXXFLAGS) -o $(TARGET) $(EXTRAS)
+$(CHORD_TARGET): $(CHORD_EXTRAS)
+		$(CXX) $(CXXFLAGS) -o $(CHORD_TARGET) $(CHORD_EXTRAS)
+
+$(KADEMLIA_TARGET): $(KADEMLIA_EXTRAS) kademlia_protocol.cpp
+		$(CXX) $(CXXFLAGS) -o $(KADEMLIA_TARGET) $(KADEMLIA_EXTRAS) kademlia_protocol.cpp
+
+$(KADEMLIA_EXP): $(KADEMLIA_EXTRAS) kademlia_experiment.cpp
+		$(CXX) $(CXXFLAGS) -o $(KADEMLIA_EXP) $(KADEMLIA_EXTRAS) kademlia_experiment.cpp
 
 clean:
-		$(RM) $(TARGET) *.out
+		$(RM) $(CHORD_TARGET) $(KADEMLIA_TARGET) $(KADEMLIA_EXP) *.out *.txt
