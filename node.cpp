@@ -134,7 +134,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         std::string reply = "OK successor_set\n";
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
-    else if (cmd == "PUT")
+    else if (cmd == "PUT") // Store and replicate (with owner check)
     {
         std::string key, value;
         ss >> key;
@@ -180,7 +180,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         int succ_node_port = SELF->port;
         {
             std::lock_guard<std::mutex> lock(SELF->state_mutex);
-            
+
             succ_id_local = SELF->successor_id;
             succ_ip_local = SELF->successor_ip;
             succ_node_port = SELF->successor_port;
@@ -246,7 +246,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         std::string reply = "OK stored_and_replicated\n";
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
-    else if (cmd == "PUT_REPLICA")
+    else if (cmd == "PUT_REPLICA") // Store replica directly (no owner check)
     {
         std::string key, value;
         ss >> key;
@@ -264,7 +264,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         std::string reply = "OK replica_stored\n";
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
-    else if (cmd == "PUT_DIRECT")
+    else if (cmd == "PUT_DIRECT") // Store directly without owner check (used during key transfer)
     {
         std::string key, value;
         ss >> key;
