@@ -307,35 +307,73 @@ void ChordNode::put(const std::string &key, const std::string &value)
         data[key] = value;
     }
 
-    bool allow_replicate = false;
+    // replicate to successor nodes
+    std::vector<Finger> replication_targets;
+    u64 succ_id_local = id;
+    std::string succ_ip_local = ip;
+    int succ_node_port = port;
     {
-        // consider successor list only if enough stable rounds have passed since join
-        std::lock_guard<std::mutex> lock(finger_table_mutex);
+        std::lock_guard<std::mutex> lock(state_mutex);
 
-        if (stable_rounds >= STABLE_ROUNDS_REQUIRED)
-            allow_replicate = true;
+        succ_id_local = successor_id;
+        succ_ip_local = successor_ip;
+        succ_node_port = successor_port;
+    }
 
-        if (allow_replicate)
+    if (succ_id_local == id)
+        return;
+
+    replication_targets.emplace_back(succ_id_local, succ_ip_local, succ_node_port);
+    
+    while ((int)replication_targets.size() < replication_factor)
+    {
+        auto [replica_node_id, replica_node_ip, replica_node_port] = replication_targets.back();
+
+         // if self, stop replicating further
+        if (replica_node_id == id)
+            break;
+        
+        std::string rep_msg = "GET_SUCCESSOR";
+        RPCResponse rep_resp = rpc_send(replica_node_ip, replica_node_port, rep_msg);
+
+        if (!rep_resp.ok)
+            break;
+
+        std::istringstream rep_iss(rep_resp.body);
+        u64 nid;
+        std::string nip;
+        int nport;
+        rep_iss >> nid >> nip >> nport;
+
+        if (rep_iss.fail())
+            break;
+
+        bool duplicate = false;
+        for (const auto &t : replication_targets)
         {
-            std::vector<Finger> local_successor_list;
+            auto [existing_id, _, __] = t;
+            if (existing_id == nid)
             {
-                std::lock_guard<std::mutex> lock(successor_list_mutex);
-        
-                local_successor_list = successor_list; // copy to avoid holding lock during RPCs
-            }
-            
-            for (int i = 0; i < replication_factor && i < (int)local_successor_list.size(); ++i)
-            {
-                auto [replica_node_id, replica_node_ip, replica_node_port] = local_successor_list[i];
-        
-                // don't replicate to self
-                if (replica_node_id == id)
-                    continue;
-        
-                std::string msg = "PUT_REPLICA " + key + " " + value;
-                rpc_send(replica_node_ip, replica_node_port, msg);
+                duplicate = true;
+                break;
             }
         }
+
+        if (duplicate)
+            break;
+
+        replication_targets.emplace_back(nid, nip, nport);
+    }
+
+    for (auto &t : replication_targets)
+    {
+        auto [replica_node_id, replica_node_ip, replica_node_port] = t;
+
+        if (replica_node_id == id)
+            continue;
+
+        std::string msg = "PUT_REPLICA " + key + " " + value;
+        rpc_send(replica_node_ip, replica_node_port, msg);
     }
 }
 
