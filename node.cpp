@@ -359,9 +359,14 @@ void handle_rpc(int client_fd, const std::string &msg)
     else if (cmd == "DOCKER_GET")
     {
         std::string key;
+        std::string value;
         ss >> key;
 
-        std::string value = SELF->get(key);
+        // check locally first
+        if (SELF->data.count(key))
+            value = SELF->data[key];
+        else
+            value = SELF->get(key);
 
         if (!value.empty())
             std::cout << key << " => " << value << std::endl;
@@ -499,9 +504,14 @@ int main(int argc, char **argv)
             else if (cmd == "get")
             {
                 std::string key;
+                std::string value;
                 std::cin >> key;
                 
-                std::string value = node.get(key);
+                // check locally first
+                if (node.data.count(key))
+                    value = node.data[key];
+                else
+                    value = node.get(key);
     
                 if (!value.empty())
                     std::cout << key << " => " << value << std::endl;
