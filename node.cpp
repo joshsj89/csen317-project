@@ -325,6 +325,9 @@ void handle_rpc(int client_fd, const std::string &msg)
     else if (cmd == "DOCKER_LEAVE")
     {
         SELF->leave();
+
+        std::string reply = "OK left\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
     }
     else if (cmd == "DOCKER_INFO")
     {
@@ -333,9 +336,14 @@ void handle_rpc(int client_fd, const std::string &msg)
         std::cout << "Port: " << SELF->port << std::endl;
         std::cout << "Predecessor: " << SELF->predecessor_id << " (" << SELF->predecessor_ip << ":" << SELF->predecessor_port << ")" << std::endl;
         std::cout << "Successor: " << SELF->successor_id << " (" << SELF->successor_ip << ":" << SELF->successor_port << ")" << std::endl;
+
+        std::string reply = "OK info_displayed\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
     }
     else if (cmd == "DOCKER_PUT")
     {
+        SELF->metric_put_requests++;
+
         std::string key, value;
         ss >> key;
         std::getline(ss, value); // read the rest of the line as value (allow spaces)
@@ -345,6 +353,10 @@ void handle_rpc(int client_fd, const std::string &msg)
         if (value.empty())
         {
             std::cout << "Value cannot be empty." << std::endl;
+
+            std::string reply = "ERR empty_value\n";
+            send(client_fd, reply.c_str(), reply.size(), 0);
+
             close(client_fd);
             return;
         }
@@ -358,6 +370,8 @@ void handle_rpc(int client_fd, const std::string &msg)
     }
     else if (cmd == "DOCKER_GET")
     {
+        SELF->metric_get_requests++;
+        
         std::string key;
         std::string value;
         ss >> key;
@@ -369,20 +383,40 @@ void handle_rpc(int client_fd, const std::string &msg)
             value = SELF->get(key);
 
         if (!value.empty())
+        {
             std::cout << key << " => " << value << std::endl;
+
+            std::string reply = "OK retrieved\n";
+            send(client_fd, reply.c_str(), reply.size(), 0);
+        }
         else
+        {
             std::cout << "Key '" << key << "' not found." << std::endl;
 
-        std::string reply = "OK retrieved\n";
-        send(client_fd, reply.c_str(), reply.size(), 0);
+            std::string reply = "ERR not_found\n";
+            send(client_fd, reply.c_str(), reply.size(), 0);
+        }
+
     }
     else if (cmd == "DOCKER_FILES")
     {
         std::cout << "Stored files/keys:" << std::endl;
         for (const auto &kv : SELF->data)
-        {
             std::cout << "  " << kv.first << " => " << kv.second << std::endl;
-        }
+
+        std::string reply = "OK files_listed\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
+    else if (cmd == "GET_METRICS")
+    {
+        std::string reply =
+            "OK " +
+            std::to_string(SELF->metric_find_successor_calls.load()) + " " +
+            std::to_string(SELF->metric_find_successor_hops.load()) + " " +
+            std::to_string(SELF->metric_put_requests.load()) + " " +
+            std::to_string(SELF->metric_get_requests.load()) + "\n";
+
+        send(client_fd, reply.c_str(), reply.size(), 0);
     }
     else
     {

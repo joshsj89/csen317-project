@@ -107,28 +107,28 @@ void ChordNode::join(std::string bootstrap_ip, int bootstrap_port)
         successor_port = succ_port;
     }
     // Request key transfer from new successor
-    // std::string transfer_msg = "TRANSFER_KEYS " + std::to_string(id) + " " + ip + " " + std::to_string(port);
-    // RPCResponse transfer_resp = rpc_send(successor_ip, successor_port, transfer_msg);
+    std::string transfer_msg = "TRANSFER_KEYS " + std::to_string(id) + " " + ip + " " + std::to_string(port);
+    RPCResponse transfer_resp = rpc_send(successor_ip, successor_port, transfer_msg);
 
-    // if (!transfer_resp.ok)
-    // {
-    //     const int max_retries = 3;
-    //     bool success = false;
-    //     for (int attempt = 0; attempt < max_retries && !success; ++attempt)
-    //     {
-    //         std::this_thread::sleep_for(std::chrono::milliseconds(100 * (attempt + 1))); // brief pause before retry
+    if (!transfer_resp.ok)
+    {
+        const int max_retries = 3;
+        bool success = false;
+        for (int attempt = 0; attempt < max_retries && !success; ++attempt)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100 * (attempt + 1))); // brief pause before retry
 
-    //         transfer_resp = rpc_send(successor_ip, successor_port, transfer_msg);
+            transfer_resp = rpc_send(successor_ip, successor_port, transfer_msg);
 
-    //         if (transfer_resp.ok)
-    //             success = true;
-    //     }
+            if (transfer_resp.ok)
+                success = true;
+        }
 
-    //     if (!success)
-    //     {
-    //         std::cerr << "[join] Failed to transfer keys from successor after " << max_retries << " attempts: " << transfer_resp.body << std::endl;
-    //     }
-    // }
+        if (!success)
+        {
+            std::cerr << "[join] Failed to transfer keys from successor after " << max_retries << " attempts: " << transfer_resp.body << std::endl;
+        }
+    }
 
     // Notify the successor so it can update its predecessor immediately
     try
@@ -275,6 +275,8 @@ void ChordNode::leave()
 
 void ChordNode::put(const std::string &key, const std::string &value)
 {
+    metric_put_requests++;
+
     u64 key_id = hash_str(key) % (1ULL << m);
     auto [owner_id, owner_ip, owner_port] = find_successor(key_id);
 
@@ -379,6 +381,8 @@ void ChordNode::put(const std::string &key, const std::string &value)
 
 std::string ChordNode::get(const std::string &key)
 {
+    metric_get_requests++;
+
     u64 key_id = hash_str(key) % (1ULL << m);
     auto [owner_id, owner_ip, owner_port] = find_successor(key_id);
 
@@ -751,6 +755,8 @@ void ChordNode::stabilize()
 
 Finger ChordNode::find_successor(u64 id_to_find)
 {
+    metric_find_successor_calls++;
+
     u64 succ_id_local;
     std::string succ_ip_local;
     int succ_port_local;
@@ -777,6 +783,7 @@ Finger ChordNode::find_successor(u64 id_to_find)
         return {succ_id_local, succ_ip_local, succ_port_local};
 
     // Forward RPC to next node to find successor
+    metric_find_successor_hops++;
     std::string msg = "FIND_SUCCESSOR " + std::to_string(id_to_find);
     RPCResponse resp = rpc_send(next_ip, next_port, msg);
 

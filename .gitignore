@@ -40,3 +40,4 @@ chord_sim
 
 # debug information files
 *.dwo
+/logs

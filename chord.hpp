@@ -44,6 +44,12 @@ public:
     std::mutex state_mutex; // protects predecessor and successor
     std::mutex data_mutex; // protects data store
 
+    // --- Metrics Counters ---
+    std::atomic<uint64_t> metric_find_successor_calls{0};
+    std::atomic<uint64_t> metric_find_successor_hops{0};
+    std::atomic<uint64_t> metric_put_requests{0};
+    std::atomic<uint64_t> metric_get_requests{0};
+
     ChordNode(std::string ip_address, int port_number, int m_bits);
 
     void join(std::string bootstrap_ip, int bootstrap_port);
