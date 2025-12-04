@@ -1,0 +1,10 @@
+PUT alpha 7 OK OK stored
+GET alpha 619 OK ERR not_found
+PUT beta 9 OK OK stored
+GET beta 6 OK OK retrieved
+PUT gamma 10 OK OK stored
+GET gamma 6 OK OK retrieved
+PUT delta 11 OK OK stored
+GET delta 8 OK OK retrieved
+PUT epsilon 2342 OK OK stored
+GET epsilon 4154 OK ERR not_found
