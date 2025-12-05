@@ -10,7 +10,9 @@
 
 ChordNode *SELF = nullptr;
 std::atomic<bool> RUNNING = true;
-bool isLeaving = false;
+std::atomic<bool> joining = false;
+std::atomic<bool> isLeaving = false;
+std::atomic<bool> has_transferred_keys = false;
 const int replication_factor = 3;
 
 void handle_rpc(int client_fd, const std::string &msg)
@@ -27,10 +29,43 @@ void handle_rpc(int client_fd, const std::string &msg)
     }
     else if (cmd == "GET_PREDECESSOR")
     {
+        u64 pred_id_local;
+        std::string pred_ip_local;
+        int pred_port_local;
+
+        {
+            std::lock_guard<std::mutex> lock(SELF->state_mutex);
+
+            pred_id_local = SELF->predecessor_id;
+            pred_ip_local = SELF->predecessor_ip;
+            pred_port_local = SELF->predecessor_port;
+        }
+
         std::string reply =
-            "OK " + std::to_string(SELF->predecessor_id) + " " +
-            SELF->predecessor_ip + " " +
-            std::to_string(SELF->predecessor_port) + "\n";
+            "OK " + std::to_string(pred_id_local) + " " +
+            pred_ip_local + " " +
+            std::to_string(pred_port_local) + "\n";
+
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
+    else if (cmd == "GET_SUCCESSOR")
+    {
+        u64 succ_id_local;
+        std::string succ_ip_local;
+        int succ_port_local;
+
+        {
+            std::lock_guard<std::mutex> lock(SELF->state_mutex);
+
+            succ_id_local = SELF->successor_id;
+            succ_ip_local = SELF->successor_ip;
+            succ_port_local = SELF->successor_port;
+        }
+
+        std::string reply =
+            "OK " + std::to_string(succ_id_local) + " " +
+            succ_ip_local + " " +
+            std::to_string(succ_port_local) + "\n";
 
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
@@ -99,7 +134,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         std::string reply = "OK successor_set\n";
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
-    else if (cmd == "PUT")
+    else if (cmd == "PUT") // Store and replicate (with owner check)
     {
         std::string key, value;
         ss >> key;
@@ -138,28 +173,80 @@ void handle_rpc(int client_fd, const std::string &msg)
             SELF->data[key] = value;
         }
 
-        std::vector<Finger> local_successor_list;
+        // replicate to successor nodes
+        std::vector<Finger> replication_targets;
+        u64 succ_id_local = SELF->id;
+        std::string succ_ip_local = SELF->ip;
+        int succ_node_port = SELF->port;
         {
-            std::lock_guard<std::mutex> lock(SELF->successor_list_mutex);
-            local_successor_list = SELF->successor_list; // copy to avoid holding lock during RPCs
+            std::lock_guard<std::mutex> lock(SELF->state_mutex);
+
+            succ_id_local = SELF->successor_id;
+            succ_ip_local = SELF->successor_ip;
+            succ_node_port = SELF->successor_port;
         }
 
-        for (int i = 0; i < replication_factor; ++i)
+        if (succ_id_local == SELF->id)
         {
-            auto [replica_node_id, replica_node_ip, replica_node_port] = local_successor_list[i];
+            std::string reply = "OK stored_no_replica\n";
+            send(client_fd, reply.c_str(), reply.size(), 0);
+            close(client_fd);
+            return;
+        }
 
-            // don't replicate to self
+        replication_targets.emplace_back(succ_id_local, succ_ip_local, succ_node_port);
+
+        while ((int)replication_targets.size() < replication_factor)
+        {
+            auto [replica_node_id, replica_node_ip, replica_node_port] = replication_targets.back();
+
+             // if self, stop replicating further
             if (replica_node_id == SELF->id)
-                continue;
+                break;
 
-            std::string msg = "PUT_REPLICA " + key + " " + value;
-            rpc_send(replica_node_ip, replica_node_port, msg);
+            std::string msg = "GET_SUCCESSOR";
+            RPCResponse resp = rpc_send(replica_node_ip, replica_node_port, msg);
+
+            if (!resp.ok)
+                break;
+
+            std::istringstream rep_iss(resp.body);
+            u64 nid;
+            std::string nip;
+            int nport;
+            rep_iss >> nid >> nip >> nport;
+
+            if (rep_iss.fail())
+                break;
+
+            bool duplicate = false;
+            for (const auto &t : replication_targets)
+            {
+                auto [existing_id, _, __] = t;
+                if (existing_id == nid)
+                {
+                    duplicate = true;
+                    break;
+                }
+            }
+
+            if (duplicate)
+                break;
+
+            replication_targets.emplace_back(nid, nip, nport);
         }
 
+        for (auto &t : replication_targets)
+        {
+            auto [replica_node_id, replica_node_ip, replica_node_port] = t;
+
+            std::string rep_msg = "PUT_REPLICA " + key + " " + value;
+            rpc_send(replica_node_ip, replica_node_port, rep_msg);
+        }
         std::string reply = "OK stored_and_replicated\n";
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
-    else if (cmd == "PUT_REPLICA")
+    else if (cmd == "PUT_REPLICA") // Store replica directly (no owner check)
     {
         std::string key, value;
         ss >> key;
@@ -177,7 +264,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         std::string reply = "OK replica_stored\n";
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
-    else if (cmd == "PUT_DIRECT")
+    else if (cmd == "PUT_DIRECT") // Store directly without owner check (used during key transfer)
     {
         std::string key, value;
         ss >> key;
@@ -238,6 +325,9 @@ void handle_rpc(int client_fd, const std::string &msg)
     else if (cmd == "DOCKER_LEAVE")
     {
         SELF->leave();
+
+        std::string reply = "OK left\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
     }
     else if (cmd == "DOCKER_INFO")
     {
@@ -246,9 +336,14 @@ void handle_rpc(int client_fd, const std::string &msg)
         std::cout << "Port: " << SELF->port << std::endl;
         std::cout << "Predecessor: " << SELF->predecessor_id << " (" << SELF->predecessor_ip << ":" << SELF->predecessor_port << ")" << std::endl;
         std::cout << "Successor: " << SELF->successor_id << " (" << SELF->successor_ip << ":" << SELF->successor_port << ")" << std::endl;
+
+        std::string reply = "OK info_displayed\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
     }
     else if (cmd == "DOCKER_PUT")
     {
+        SELF->metric_put_requests++;
+
         std::string key, value;
         ss >> key;
         std::getline(ss, value); // read the rest of the line as value (allow spaces)
@@ -258,6 +353,10 @@ void handle_rpc(int client_fd, const std::string &msg)
         if (value.empty())
         {
             std::cout << "Value cannot be empty." << std::endl;
+
+            std::string reply = "ERR empty_value\n";
+            send(client_fd, reply.c_str(), reply.size(), 0);
+
             close(client_fd);
             return;
         }
@@ -271,26 +370,53 @@ void handle_rpc(int client_fd, const std::string &msg)
     }
     else if (cmd == "DOCKER_GET")
     {
+        SELF->metric_get_requests++;
+        
         std::string key;
+        std::string value;
         ss >> key;
 
-        std::string value = SELF->get(key);
+        // check locally first
+        if (SELF->data.count(key))
+            value = SELF->data[key];
+        else
+            value = SELF->get(key);
 
         if (!value.empty())
+        {
             std::cout << key << " => " << value << std::endl;
+
+            std::string reply = "OK retrieved\n";
+            send(client_fd, reply.c_str(), reply.size(), 0);
+        }
         else
+        {
             std::cout << "Key '" << key << "' not found." << std::endl;
 
-        std::string reply = "OK retrieved\n";
-        send(client_fd, reply.c_str(), reply.size(), 0);
+            std::string reply = "ERR not_found\n";
+            send(client_fd, reply.c_str(), reply.size(), 0);
+        }
+
     }
     else if (cmd == "DOCKER_FILES")
     {
         std::cout << "Stored files/keys:" << std::endl;
         for (const auto &kv : SELF->data)
-        {
             std::cout << "  " << kv.first << " => " << kv.second << std::endl;
-        }
+
+        std::string reply = "OK files_listed\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
+    else if (cmd == "GET_METRICS")
+    {
+        std::string reply =
+            "OK " +
+            std::to_string(SELF->metric_find_successor_calls.load()) + " " +
+            std::to_string(SELF->metric_find_successor_hops.load()) + " " +
+            std::to_string(SELF->metric_put_requests.load()) + " " +
+            std::to_string(SELF->metric_get_requests.load()) + "\n";
+
+        send(client_fd, reply.c_str(), reply.size(), 0);
     }
     else
     {
@@ -345,6 +471,7 @@ int main(int argc, char **argv)
             node.stabilize();
             node.fix_fingers();
             node.check_predecessor();
+            node.check_successor();
         }
     });
 
@@ -411,9 +538,14 @@ int main(int argc, char **argv)
             else if (cmd == "get")
             {
                 std::string key;
+                std::string value;
                 std::cin >> key;
                 
-                std::string value = node.get(key);
+                // check locally first
+                if (node.data.count(key))
+                    value = node.data[key];
+                else
+                    value = node.get(key);
     
                 if (!value.empty())
                     std::cout << key << " => " << value << std::endl;
