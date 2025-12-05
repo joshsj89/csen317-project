@@ -12,7 +12,7 @@ all: 		$(CHORD_TARGET) $(KADEMLIA_TARGET) $(KADEMLIA_EXP)
 $(CHORD_TARGET): $(CHORD_EXTRAS)
 		$(CXX) $(CXXFLAGS) -o $(CHORD_TARGET) $(CHORD_EXTRAS)
 
-$(KADEMLIA_TARGET): $(KADEMLIA_EXTRAS) kademlia_protocol.cpp
+$(KADEMLIA_TARGET): $(KADEMLIA_EXTRAS) kademlia_protocol.cpp kademlia_sim.cpp
 		$(CXX) $(CXXFLAGS) -o $(KADEMLIA_TARGET) $(KADEMLIA_EXTRAS) kademlia_protocol.cpp
 
 $(KADEMLIA_EXP): $(KADEMLIA_EXTRAS) kademlia_experiment.cpp

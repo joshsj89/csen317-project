@@ -3,7 +3,9 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <map>
 #include <unordered_map>
+#include <memory>
 #include <deque>
 #include <optional>
 #include <set>
@@ -196,6 +198,44 @@ private:
 
     void update_shortlist(LookupState &state, const std::vector<Contact> &new_contacts);
     std::vector<Contact> get_next_alpha_contacts(LookupState &state);
+};
+
+struct KademliaNetwork
+{
+    int k;                                               // bucket size (default: 20)
+    int alpha;                                           // concurrency (default: 3)
+    int replication;                                     // replication factor
+    std::map<NodeID, std::shared_ptr<KademliaNode>> nodes;         // all nodes in the network
+    std::unordered_map<std::string, std::vector<NodeID>> key_locations; // track where keys are stored
+
+    KademliaNetwork(int bucket_size = 20, int concurrency = 3, int repl = 3)
+        : k(bucket_size), alpha(concurrency), replication(repl) {}
+
+    // Add a new node to the network
+    NodeID add_node(const std::string &name, const std::string &ip = "127.0.0.1", int port = 0);
+
+    // Remove a node from the network
+    void remove_node(const NodeID &id);
+
+    // Simulate node join with routing table population
+    void perform_join(const NodeID &new_node_id, const Contact &bootstrap);
+
+    // Global helper: find k closest nodes to a target (used for simulation)
+    std::vector<Contact> find_closest_nodes_global(const NodeID &target, int count) const;
+
+    // Store a key-value pair in the network (on k closest nodes)
+    void put(const std::string &key, const std::string &value);
+    // Get a value from the network
+    std::pair<std::string, NodeID> get(const std::string &key) const;
+
+    // Simulate a lookup from a starting node (returns hops and target node)
+    std::pair<int, NodeID> route_lookup(const NodeID &start_id, const NodeID &target_id) const;
+
+    // Get value from a specific starting node (simulate lookup)
+    std::pair<std::string, int> get_from(const NodeID &start_id, const std::string &key) const;
+
+    // Dump network state
+    void dump_state(std::ostream &os) const;
 };
 
 // Global configuration
