@@ -1,36 +1,5 @@
 # csen317-project
 
-## Outline (from our project proposal)
-
-Be sure to structure your plan into a set of incremental, implementable
-milestones and include a milestone schedule
-
-1. Implement basic Chord DHT node modules and hashing mechanism, as well as basic key adding/retrieving
-2. Implement node joining/leaving mechanisms, ensuring consistent finger table updates
-3. Conduct tests regarding stability and performance at varying scales, preferably at a large scale (entire point of the course)
-4. Repeat steps 1-3 but for Kademlia DHT instead and implement each mechanism of Kademlia DHT that is different from Chord.
-5. Compare the Methods
-6. Presentation & Paper
-
-## Current Progress
-
-### Single Process
-- Implemented basic Chord DHT node modules and hashing mechanism
-- Implemented node joining/leaving mechanisms, ensuring consistent finger table updates
-- Implemented basic key adding/retrieving for Chord DHT
-
-### Multi Process
-- Implemented basic Chord DHT node modules and hashing mechanism
-- Implemented node joining/leaving mechanisms, ensuring consistent finger table updates
-- Implemented basic key adding/retrieving for Chord DHT in multi-process setup
-
-## Next Steps
-- Implement key rebalancing in multi-process setup
-- Implement key replication in multi-process setup
-- Conduct tests regarding stability and performance at varying scales
-- Implement Kademlia DHT mechanisms
-- Compare Chord and Kademlia DHTs
-
 ## Run the current Chord Protocol Simulation (single-process)
 ```
 g++ -std=c++17 -o chord_sim chord_protocol.cpp

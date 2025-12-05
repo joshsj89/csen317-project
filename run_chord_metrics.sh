@@ -111,5 +111,29 @@ else
     echo "No GET_METRICS response - ensure node exports metrics RPC"
 fi
 
+# Kill a random node
+kill_node=$(( (RANDOM % N) + 1 ))
+echo "Killing node $kill_node"
+
+pid=$(sed -n "${kill_node}p" pids.txt)
+kill -9 $pid
+
+sleep 3
+
+# Try GET on all keys and count failures
+fails=0
+total=0
+
+for key in "${KEYS[@]}"; do
+    port=$((BASE + (RANDOM % N)))
+    printf "DOCKER_GET $key\n" | nc 127.0.0.1 $port >/dev/null
+    if [[ $? -ne 0 ]]; then
+        fails=$((fails + 1))
+    fi
+    total=$((total + 1))
+done
+
+echo "$fails $total" > metrics_fail.txt
+
 echo "DONE. Files produced:"
 ls -1 metrics_*.txt logs/*.log | sed -e 's/^/  /'
