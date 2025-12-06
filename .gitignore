@@ -36,6 +36,11 @@
 *.exe
 *.out
 *.app
+chord_sim
 
 # debug information files
 *.dwo
+/logs
+kademlia_experiment
+kademlia_sim
+chord_protocol
