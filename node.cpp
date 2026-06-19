@@ -149,7 +149,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         // if this node is not the owner, forward request
         if (owner_id != SELF->id)
         {
-            std::string msg = "PUT " + key + " " + value;;
+            std::string msg = "PUT " + key + " " + value;
             RPCResponse resp = rpc_send(owner_ip, owner_port, msg);
 
             if (resp.ok)
