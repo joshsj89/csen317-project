@@ -549,7 +549,7 @@ int main(int argc, char **argv)
                     value = node.get(key);
     
                 if (!value.empty())
-                    std::cout << key << " => " << value << std::endl;
+                    std::cout << std::format("{:<10} : {}\n", key, value);
                 else
                     std::cout << "Key '" << key << "' not found." << std::endl;
             }
