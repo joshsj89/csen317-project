@@ -1,4 +1,4 @@
-CXX 		= g++ -std=c++17
+CXX 		= g++ -std=c++20
 CXXFLAGS 	= -g -Wall -Wextra
 CHORD_EXTRAS	= chord.cpp node.cpp rpc.cpp utils.cpp
 KADEMLIA_EXTRAS	= kademlia.cpp

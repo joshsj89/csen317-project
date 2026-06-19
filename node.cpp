@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <format> // C++20 for std::format
 #include <iostream>
 #include <sstream>
 #include <sys/socket.h>
@@ -555,10 +556,10 @@ int main(int argc, char **argv)
             else if (cmd == "files")
             {
                 std::cout << "Stored files/keys:" << std::endl;
-                for (const auto &kv : node.data)
-                {
-                    std::cout << "  " << kv.first << " => " << kv.second << std::endl;
-                }
+                std::cout << "------------------" << std::endl;
+                for (const auto &[key, value] : node.data)
+                    std::cout << std::format("{:<10} : {}\n", key, value);
+                std::cout << "------------------" << std::endl;
             }
             else if (cmd == "help")
             {
