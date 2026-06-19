@@ -26,7 +26,7 @@ public:
     std::string ip;
     int port;
 
-    u64 successor_id;;
+    u64 successor_id;
     std::string successor_ip;
     int successor_port;
 
