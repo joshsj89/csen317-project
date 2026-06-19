@@ -1,6 +1,8 @@
 #include <arpa/inet.h>
 #include <format> // C++20 for std::format
 #include <iostream>
+#include <readline/history.h>
+#include <readline/readline.h>
 #include <sstream>
 #include <sys/socket.h>
 #include <thread>
@@ -490,19 +492,26 @@ int main(int argc, char **argv)
         // CLI loop
         while (true)
         {
-            std::cout << "ChordNode> ";
-            // std::string line;
-            // if (!std::getline(std::cin, line))
-            //     break;
-            // std::stringstream ss(line);
+            char *input = readline("ChordNode> ");
+
+            if (!input)
+                input = strdup("leave"); // EOF (Ctrl+D)
+
+            if (*input)
+                add_history(input); // add non-empty commands to history
+
+            std::string line(input);
+            free(input);
+
+            std::stringstream ss(line);
             std::string cmd;
-            std::cin >> cmd;
+            ss >> cmd;
     
             if (cmd == "join")
             {
                 std::string bootstrap_ip;
                 int bootstrap_port;
-                std::cin >> bootstrap_ip >> bootstrap_port;
+                ss >> bootstrap_ip >> bootstrap_port;
                 node.join(bootstrap_ip, bootstrap_port);
                 // std::cout << "Joined the network via " << bootstrap_ip << ":" << bootstrap_port << std::endl;
             }
@@ -522,8 +531,8 @@ int main(int argc, char **argv)
             else if (cmd == "put")
             {
                 std::string key, value;
-                std::cin >> key;
-                std::getline(std::cin, value); // read the rest of the line as value (allow spaces)
+                ss >> key;
+                std::getline(ss, value); // read the rest of the line as value (allow spaces)
                 if (!value.empty() && value[0] == ' ') 
                     value.erase(0, 1); // remove leading space
     
@@ -540,7 +549,7 @@ int main(int argc, char **argv)
             {
                 std::string key;
                 std::string value;
-                std::cin >> key;
+                ss >> key;
                 
                 // check locally first
                 if (node.data.count(key))

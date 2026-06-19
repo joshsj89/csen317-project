@@ -1,6 +1,6 @@
 CXX 		= g++ -std=c++20
 CXXFLAGS 	= -g -Wall -Wextra
-CHORD_EXTRAS	= chord.cpp node.cpp rpc.cpp utils.cpp
+CHORD_EXTRAS	= chord.cpp node.cpp rpc.cpp utils.cpp -lreadline
 KADEMLIA_EXTRAS	= kademlia.cpp
 CHORD_TARGET	= chord_sim
 KADEMLIA_TARGET	= kademlia_sim

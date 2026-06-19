@@ -1,5 +1,11 @@
 # csen317-project
 
+## Ensure GNU Readline library is installed for command-line input handling:
+```bash
+sudo apt update
+sudo apt install libreadline-dev
+```
+
 ## Run the current Chord Protocol Simulation (single-process)
 ```
 g++ -std=c++17 -o chord_sim chord_protocol.cpp
