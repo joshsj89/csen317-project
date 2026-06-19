@@ -563,13 +563,13 @@ int main(int argc, char **argv)
             else if (cmd == "help")
             {
                 std::cout << "Commands:\n";
-                std::cout << "  join <bootstrap_ip> <bootstrap_port> - Join the Chord network\n";
-                std::cout << "  leave                               - Leave the Chord network\n";
-                std::cout << "  info                                - Display node information\n";
-                std::cout << "  put <key> <value>                   - Store a key-value pair\n";
-                std::cout << "  get <key>                           - Retrieve value for a key\n";
-                std::cout << "  files                               - List stored keys\n";
-                std::cout << "  exit                                - Exit the program\n";
+                std::cout << "  join <bootstrap_ip> <bootstrap_port>    - Join the Chord network\n";
+                std::cout << "  leave                                   - Leave the Chord network\n";
+                std::cout << "  info                                    - Display node information\n";
+                std::cout << "  put <key> <value>                       - Store a key-value pair\n";
+                std::cout << "  get <key>                               - Retrieve value for a key\n";
+                std::cout << "  files                                   - List stored keys\n";
+                std::cout << "  exit                                    - Exit the program\n";
             }
             else if (cmd == "exit")
             {
