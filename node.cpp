@@ -528,6 +528,19 @@ int main(int argc, char **argv)
                 std::cout << "Predecessor: " << node.predecessor_id << " (" << node.predecessor_ip << ":" << node.predecessor_port << ")" << std::endl;
                 std::cout << "Successor: " << node.successor_id << " (" << node.successor_ip << ":" << node.successor_port << ")" << std::endl;
             }
+            else if (cmd == "fingers")
+            {
+                std::lock_guard<std::mutex> lock(node.finger_table_mutex);
+                std::cout << "Finger Table:" << std::endl;
+                for (size_t i = 0; i < node.finger_table.size(); ++i)
+                {
+                    const auto &entry = node.finger_table[i];
+                    std::cout << "  [" << i << "] start: " << entry.start
+                              << ", node_id: " << entry.node_id
+                              << ", ip: " << entry.node_ip
+                              << ", port: " << entry.node_port << std::endl;
+                }
+            }
             else if (cmd == "put")
             {
                 std::string key, value;
@@ -576,6 +589,7 @@ int main(int argc, char **argv)
                 std::cout << "  join <bootstrap_ip> <bootstrap_port>    - Join the Chord network\n";
                 std::cout << "  leave                                   - Leave the Chord network\n";
                 std::cout << "  info                                    - Display node information\n";
+                std::cout << "  fingers                                 - Display finger table\n";
                 std::cout << "  put <key> <value>                       - Store a key-value pair\n";
                 std::cout << "  get <key>                               - Retrieve value for a key\n";
                 std::cout << "  files                                   - List stored keys\n";
