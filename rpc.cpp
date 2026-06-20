@@ -119,23 +119,27 @@ void rpc_accept_loop(int server_fd, void (*handler)(int, const std::string&))
             continue;
         }
 
-        struct timeval timeout;
-        timeout.tv_sec = 1;  // 1 second timeout
-        timeout.tv_usec = 0;
-        setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+        // Handle each client connection in a separate thread to allow concurrent processing
+        // Allows a node to keep accepting and serving inbound RPCs while it waits on outbound calls
+        std::thread([handler, client_fd]() {
+            struct timeval timeout;
+            timeout.tv_sec = 1;  // 1 second timeout
+            timeout.tv_usec = 0;
+            setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
 
-        char buffer[4096];
-        int n = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
-        if (n < 0)
-        {
-            std::cerr << "Receive failed\n";
-            close(client_fd);
-            continue;
-        }
+            char buffer[4096];
+            int n = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
+            if (n < 0)
+            {
+                std::cerr << "Receive failed\n";
+                close(client_fd);
+                return;
+            }
 
-        buffer[n] = '\0';
-        std::string msg(buffer);
+            buffer[n] = '\0';
+            std::string msg(buffer);
 
-        handler(client_fd, msg);
+            handler(client_fd, msg);
+        }).detach();
     }
 }
