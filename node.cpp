@@ -51,7 +51,7 @@ void handle_rpc(int client_fd, const std::string &msg)
 
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
-    else if (cmd == "GET_SUCCESSOR")
+    else if (cmd == "GET_SUCCESSOR") // get immediate successor
     {
         u64 succ_id_local;
         std::string succ_ip_local;
@@ -93,7 +93,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         std::string reply = "OK notified\n";
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
-    else if (cmd == "FIND_SUCCESSOR")
+    else if (cmd == "FIND_SUCCESSOR") // find successor for a given id
     {
         u64 key;
         ss >> key;
@@ -189,7 +189,7 @@ void handle_rpc(int client_fd, const std::string &msg)
             succ_node_port = SELF->successor_port;
         }
 
-        if (succ_id_local == SELF->id)
+        if (succ_id_local == SELF->id) // if self is the only node, no replication needed
         {
             std::string reply = "OK stored_no_replica\n";
             send(client_fd, reply.c_str(), reply.size(), 0);
@@ -614,7 +614,6 @@ int main(int argc, char **argv)
     // Wait for threads to finish
     listener.join();
     stabilizer.join();
-
 
     return 0;
 }

@@ -189,7 +189,7 @@ void ChordNode::leave()
         predecessor_port_local = predecessor_port;
     }
 
-    if (successor_id_local != id)
+    if (successor_id_local != id) // if not the only node, transfer keys and notify neighbors
     {
         std::vector<std::pair<std::string, std::string>> primary_data_copy;
         {
@@ -206,7 +206,6 @@ void ChordNode::leave()
                 if (owner_id == id)
                     primary_data_copy.emplace_back(kv.first, kv.second);
             }
-            
         }
         
         for (const auto &kv : primary_data_copy)
@@ -619,7 +618,7 @@ void ChordNode::stabilize()
     iss >> succ_pred_id >> succ_pred_ip >> succ_pred_port;    
 
     // Check if successor's predecessor is a better successor
-    bool better_successor = false;
+    // bool better_successor = false;
     {
         std::lock_guard<std::mutex> lock(state_mutex);
 
@@ -631,7 +630,7 @@ void ChordNode::stabilize()
                 successor_id = succ_pred_id;
                 successor_ip = succ_pred_ip;
                 successor_port = succ_pred_port;
-                better_successor = true;
+                // better_successor = true;
             }
         }
     }
@@ -760,7 +759,6 @@ Finger ChordNode::find_successor(u64 id_to_find)
     u64 succ_id_local;
     std::string succ_ip_local;
     int succ_port_local;
-    
     {
         std::lock_guard<std::mutex> lock(state_mutex);
 
@@ -828,6 +826,7 @@ Finger ChordNode::closest_preceding_finger(u64 id_to_find)
         std::string f_ip = local_finger_table[k].node_ip;
         int f_port = local_finger_table[k].node_port;
 
+        // Check if finger is in (self_id, id_to_find)
         if (in_interval_open(self_id_local, id_to_find, f_id))
         {
             if (is_alive(f_ip, f_port))
