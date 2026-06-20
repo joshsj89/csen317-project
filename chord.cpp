@@ -840,6 +840,10 @@ Finger ChordNode::closest_preceding_finger(u64 id_to_find)
 
 void ChordNode::check_predecessor()
 {
+    // don't stabilize if node is joining or leaving
+    if (joining || isLeaving)
+        return;
+
     u64 predecessor_id_local;
     std::string predecessor_ip_local;
     int predecessor_port_local;
@@ -868,6 +872,10 @@ void ChordNode::check_predecessor()
 
 void ChordNode::check_successor()
 {
+    // don't stabilize if node is joining or leaving
+    if (joining || isLeaving)
+        return;
+    
     u64 successor_id_local;
     std::string successor_ip_local;
     int successor_port_local;
