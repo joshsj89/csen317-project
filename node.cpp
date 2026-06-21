@@ -290,6 +290,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         std::string key;
         ss >> key;
 
+        // check locally first
         if (SELF->data.count(key))
         {
             auto value = SELF->data[key];
@@ -387,7 +388,7 @@ void handle_rpc(int client_fd, const std::string &msg)
 
         if (!value.empty())
         {
-            std::cout << key << " => " << value << std::endl;
+            std::cout << std::format("{:<10} : {}\n", key, value);
 
             std::string reply = "OK retrieved\n";
             send(client_fd, reply.c_str(), reply.size(), 0);
