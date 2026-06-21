@@ -469,6 +469,10 @@ void ChordNode::transfer_keys(u64 new_node_id, std::string new_node_ip, int new_
             if (predecessor_id == 0)
                 continue;
 
+            // new node is predecessor, no transfer needed
+            if (predecessor_id == new_node_id)
+                continue;
+
             // if key is in (predecessor_id, new_node_id]
             if (in_interval_inclusive(predecessor_id, new_node_id, key_id))
                 should_transfer = true;
