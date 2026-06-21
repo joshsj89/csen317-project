@@ -112,11 +112,12 @@ else
 fi
 
 # Kill a random node
-kill_node=$(( (RANDOM % N) + 1 ))
+kill_node=$(( (RANDOM % N) + 1 )) # +1 because nodes are 1-indexed in pids.txt
 echo "Killing node $kill_node"
 
-pid=$(sed -n "${kill_node}p" pids.txt)
+pid=$(sed -n "${kill_node}p" pids.txt) # get pid of node to kill
 kill -9 $pid
+sed -i "${kill_node}d" pids.txt # remove from pids.txt
 
 sleep 3
 
@@ -137,3 +138,5 @@ echo "$fails $total" > metrics_fail.txt
 
 echo "DONE. Files produced:"
 ls -1 metrics_*.txt logs/*.log | sed -e 's/^/  /'
+
+cat pids.txt | xargs kill -9
