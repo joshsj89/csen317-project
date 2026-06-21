@@ -106,6 +106,7 @@ void ChordNode::join(std::string bootstrap_ip, int bootstrap_port)
         successor_ip = succ_ip;
         successor_port = succ_port;
     }
+
     // Request key transfer from new successor
     std::string transfer_msg = "TRANSFER_KEYS " + std::to_string(id) + " " + ip + " " + std::to_string(port);
     RPCResponse transfer_resp = rpc_send(successor_ip, successor_port, transfer_msg);
