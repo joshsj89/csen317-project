@@ -48,14 +48,30 @@ done
 
 # Wait for stabilization (increase wait a bit)
 echo "Waiting for stabilization..."
-sleep 6
-st_start=$(date +%s)
-# optional: poll GET_INFO until stable; we will just wait and sample once
-sleep 2
-st_end=$(date +%s)
+st_start=$(now_ms)
+
+while true; do # check if all nodes report stable
+    stable=true
+
+    for i in $(seq 1 $N); do
+        port=$((BASE + i - 1))
+        resp=$(printf "IS_STABLE\n" | nc 127.0.0.1 $port 2>/dev/null)
+        if [[ "$resp" != "OK 1" ]]; then
+            stable=false
+        fi
+    done
+
+    if $stable; then
+        break
+    fi
+
+    sleep 0.25
+done
+
+st_end=$(now_ms)
 stab_time=$((st_end - st_start))
 echo "STABILIZATION_TIME $stab_time" > metrics_stabilization.txt
-echo "Stabilization took $stab_time seconds"
+echo "Stabilization took $stab_time ms"
 
 # Function to send a DOCKER_ RPC, return tuple "lat_ms|status|body"
 do_rpc() {

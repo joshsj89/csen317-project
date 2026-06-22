@@ -1041,3 +1041,10 @@ bool ChordNode::is_alive(std::string check_ip, int check_port)
 
     return resp.ok;
 }
+
+bool ChordNode::is_stable()
+{
+    std::lock_guard<std::mutex> lock(state_mutex);
+
+    return stable_rounds >= STABLE_ROUNDS_REQUIRED;
+}

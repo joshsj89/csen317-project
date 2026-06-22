@@ -422,6 +422,13 @@ void handle_rpc(int client_fd, const std::string &msg)
 
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
+    else if (cmd == "IS_STABLE")
+    {
+        bool stable = SELF->is_stable();
+
+        std::string reply = "OK " + std::string(stable ? "1" : "0") + "\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
     else
     {
         std::string reply = "ERR unknown_command\n";

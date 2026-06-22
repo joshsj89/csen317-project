@@ -67,6 +67,7 @@ public:
     Finger closest_preceding_finger(u64 id);
     void recompute_finger_table();
     bool is_alive(std::string check_ip, int check_port);
+    bool is_stable();
 
 private:
     const int max_retries = 3;
