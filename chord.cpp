@@ -275,8 +275,6 @@ void ChordNode::leave()
 
 void ChordNode::put(const std::string &key, const std::string &value)
 {
-    metric_put_requests++;
-
     u64 key_id = hash_str(key) % (1ULL << m);
     auto [owner_id, owner_ip, owner_port] = find_successor(key_id);
 
@@ -381,8 +379,6 @@ void ChordNode::put(const std::string &key, const std::string &value)
 
 std::string ChordNode::get(const std::string &key)
 {
-    metric_get_requests++;
-
     u64 key_id = hash_str(key) % (1ULL << m);
     auto [owner_id, owner_ip, owner_port] = find_successor(key_id);
 

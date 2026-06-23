@@ -346,8 +346,6 @@ void handle_rpc(int client_fd, const std::string &msg)
     }
     else if (cmd == "DOCKER_PUT")
     {
-        SELF->metric_put_requests++;
-
         std::string key, value;
         ss >> key;
         std::getline(ss, value); // read the rest of the line as value (allow spaces)
@@ -373,9 +371,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
     else if (cmd == "DOCKER_GET")
-    {
-        SELF->metric_get_requests++;
-        
+    {        
         std::string key;
         std::string value;
         ss >> key;
@@ -416,9 +412,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         std::string reply =
             "OK " +
             std::to_string(SELF->metric_find_successor_calls.load()) + " " +
-            std::to_string(SELF->metric_find_successor_hops.load()) + " " +
-            std::to_string(SELF->metric_put_requests.load()) + " " +
-            std::to_string(SELF->metric_get_requests.load()) + "\n";
+            std::to_string(SELF->metric_find_successor_hops.load()) + "\n";
 
         send(client_fd, reply.c_str(), reply.size(), 0);
     }

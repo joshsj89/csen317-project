@@ -6,7 +6,7 @@ BASE=12000
 N=${1:-10}
 
 mkdir -p logs
-rm -f logs/*.log pids.txt metrics_join.txt metrics_lat.txt metrics_hops.txt metrics_fail.txt metrics_stabilization.txt
+rm -f logs/*.log pids.txt metrics_join.txt metrics_lat.txt metrics_hops.txt metrics_fail.txt metrics_stabilization.txt metrics_requests.txt
 
 KEYS=("alpha" "beta" "gamma" "delta" "epsilon")
 VALUES=("one" "two" "three" "four" "five")
@@ -92,8 +92,12 @@ do_rpc() {
 }
 
 # Collect put/get latencies and success
+client_puts=0
+client_gets=0
+
 > metrics_lat.txt
 > metrics_fail.txt
+
 for i in "${!KEYS[@]}"; do
     key=${KEYS[$i]}
     val=${VALUES[$i]}
@@ -102,6 +106,7 @@ for i in "${!KEYS[@]}"; do
     res=$(do_rpc $p_put "DOCKER_PUT $key $val")
     IFS='|' read -r lat status body <<< "$res"
     echo "PUT $key $lat $status $body" >> metrics_lat.txt
+    ((client_puts++))
 
     sleep 1
 
@@ -109,6 +114,7 @@ for i in "${!KEYS[@]}"; do
     res2=$(do_rpc $p_get "DOCKER_GET $key")
     IFS='|' read -r lat2 status2 body2 <<< "$res2"
     echo "GET $key $lat2 $status2 $body2" >> metrics_lat.txt
+    ((client_gets++))
 
     # log failures
     if [[ "$status2" != "OK" ]]; then
@@ -116,15 +122,39 @@ for i in "${!KEYS[@]}"; do
     fi
 done
 
-# Get hop metrics from node1 (assumes GET_METRICS implemented)
-metrics=$(printf "GET_METRICS\n" | nc 127.0.0.1 $BASE 2>/dev/null)
-if [[ -n "$metrics" ]]; then
-    # expected: "OK calls hops puts gets"
-    echo "$metrics" > metrics_hops.txt
-    echo "Hop metrics: $metrics"
-else
-    echo "NO_METRICS_RETURNED" > metrics_hops.txt
-    echo "No GET_METRICS response - ensure node exports metrics RPC"
+echo "PUT_REQUESTS $client_puts" > metrics_requests.txt
+echo "GET_REQUESTS $client_gets" >> metrics_requests.txt
+
+# Get metrics
+total_calls=0
+total_hops=0
+
+> metrics_hops.txt
+
+for i in $(seq 1 $N); do
+    port=$((BASE + i - 1))
+
+    metrics=$(printf "GET_METRICS\n" | nc 127.0.0.1 $port 2>/dev/null)
+
+    if [[ $metrics == "OK "* ]]; then
+        # expected: "OK calls hops"
+        read _ calls hops <<< "$metrics"
+
+        echo "Node$i: calls=$calls, hops=$hops" \
+            >> metrics_hops.txt
+
+        total_calls=$((total_calls + calls))
+        total_hops=$((total_hops + hops))
+    fi
+done
+
+echo "" >> metrics_hops.txt
+echo "TOTAL_FIND_SUCCESSOR_CALLS $total_calls" >> metrics_hops.txt
+echo "TOTAL_ROUTING_HOPS $total_hops" >> metrics_hops.txt
+
+if [[ $total_calls -gt 0 ]]; then
+    avg=$(awk "BEGIN {print $total_hops/$total_calls}")
+    echo "AVG_HOPS_PER_LOOKUP $avg" >> metrics_hops.txt
 fi
 
 # Kill a random node
