@@ -172,6 +172,8 @@ sleep 3
 fails=0
 total=0
 
+> metrics_fail.txt
+
 for key in "${KEYS[@]}"; do
     port=$((BASE + (RANDOM % N)))
     printf "DOCKER_GET $key\n" | nc 127.0.0.1 $port >/dev/null
@@ -181,7 +183,9 @@ for key in "${KEYS[@]}"; do
     total=$((total + 1))
 done
 
-echo "$fails $total" > metrics_fail.txt
+echo "GET_FAILURES $fails" >> metrics_fail.txt
+echo "TOTAL_REQUESTS $total" >> metrics_fail.txt
+echo "FAILURE_RATE $(awk "BEGIN {print $fails/$total*100}")%" >> metrics_fail.txt
 
 # echo "DONE. Files produced:"
 # ls -1 metrics_*.txt logs/*.log | sed -e 's/^/  /'
