@@ -163,6 +163,7 @@ echo "Killing node $kill_node"
 
 pid=$(sed -n "${kill_node}p" pids.txt) # get pid of node to kill
 kill -9 $pid
+wait $pid 2>/dev/null # silence Bash messages
 sed -i "${kill_node}d" pids.txt # remove from pids.txt
 
 sleep 3
@@ -182,7 +183,11 @@ done
 
 echo "$fails $total" > metrics_fail.txt
 
-echo "DONE. Files produced:"
-ls -1 metrics_*.txt logs/*.log | sed -e 's/^/  /'
+# echo "DONE. Files produced:"
+# ls -1 metrics_*.txt logs/*.log | sed -e 's/^/  /'
 
-cat pids.txt | xargs kill -9
+echo "Cleaning up: killing all remaining nodes..."
+{ cat pids.txt | xargs kill -9; } 2>/dev/null # kill all remaining nodes and silence Bash messages
+rm -f pids.txt
+
+echo "All done. Metrics collected in metrics_*.txt, logs in logs/*.log"
