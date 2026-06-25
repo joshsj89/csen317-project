@@ -79,6 +79,8 @@ public:
     bool is_alive(std::string check_ip, int check_port);
     bool is_stable();
 
+    void replicate_key(const std::string &key, const std::string &value);
+
 private:
     const int max_retries = 3;
     bool pending_key_transfer = false;

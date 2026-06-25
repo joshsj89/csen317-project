@@ -275,106 +275,7 @@ void ChordNode::leave()
 
 void ChordNode::put(const std::string &key, const std::string &value)
 {
-    u64 key_id = hash_str(key) % (1ULL << m);
-    auto [owner_id, owner_ip, owner_port] = find_successor(key_id);
-
-    // if this node is not the owner, forward request
-    if (owner_id != id)
-    {
-        std::string msg = "PUT " + key + " " + value;
-        RPCResponse resp = rpc_send(owner_ip, owner_port, msg);
-
-        if (!resp.ok)
-        {
-            bool success = false;
-
-            for (int attempt = 0; attempt < max_retries && !success; ++attempt)
-            {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100 * (attempt + 1))); // brief pause before retry
-
-                resp = rpc_send(owner_ip, owner_port, msg);
-
-                if (resp.ok)
-                    success = true;
-            }
-        }
-        return;
-    }
-
-    // store locally
-    {
-        std::lock_guard<std::mutex> lock(data_mutex);
-        data[key] = value;
-    }
-
-    // replicate to successor nodes
-    std::vector<Finger> replication_targets;
-    u64 succ_id_local = id;
-    std::string succ_ip_local = ip;
-    int succ_node_port = port;
-    {
-        std::lock_guard<std::mutex> lock(state_mutex);
-
-        succ_id_local = successor_id;
-        succ_ip_local = successor_ip;
-        succ_node_port = successor_port;
-    }
-
-    if (succ_id_local == id)
-        return;
-
-    replication_targets.emplace_back(succ_id_local, succ_ip_local, succ_node_port);
-    
-    while ((int)replication_targets.size() < replication_factor)
-    {
-        auto [replica_node_id, replica_node_ip, replica_node_port] = replication_targets.back();
-
-         // if self, stop replicating further
-        if (replica_node_id == id)
-            break;
-        
-        std::string rep_msg = "GET_SUCCESSOR";
-        RPCResponse rep_resp = rpc_send(replica_node_ip, replica_node_port, rep_msg);
-
-        if (!rep_resp.ok)
-            break;
-
-        std::istringstream rep_iss(rep_resp.body);
-        u64 nid;
-        std::string nip;
-        int nport;
-        rep_iss >> nid >> nip >> nport;
-
-        if (rep_iss.fail())
-            break;
-
-        bool duplicate = false;
-        for (const auto &t : replication_targets)
-        {
-            auto [existing_id, _, __] = t;
-            if (existing_id == nid)
-            {
-                duplicate = true;
-                break;
-            }
-        }
-
-        if (duplicate)
-            break;
-
-        replication_targets.emplace_back(nid, nip, nport);
-    }
-
-    for (auto &t : replication_targets)
-    {
-        auto [replica_node_id, replica_node_ip, replica_node_port] = t;
-
-        if (replica_node_id == id)
-            continue;
-
-        std::string msg = "PUT_REPLICA " + key + " " + value;
-        rpc_send(replica_node_ip, replica_node_port, msg);
-    }
+    replicate_key(key, value);
 }
 
 std::string ChordNode::get(const std::string &key)
@@ -1043,4 +944,122 @@ bool ChordNode::is_stable()
     std::lock_guard<std::mutex> lock(state_mutex);
 
     return stable_rounds >= STABLE_ROUNDS_REQUIRED;
+}
+
+void ChordNode::replicate_key(const std::string &key, const std::string &value)
+{
+    u64 key_id = hash_str(key) % (1ULL << m);
+    auto [owner_id, owner_ip, owner_port] = find_successor(key_id);
+
+    // if this node is not the owner, forward request
+    if (owner_id != id)
+    {
+        std::string msg = "PUT " + key + " " + value;
+        RPCResponse resp = rpc_send(owner_ip, owner_port, msg);
+
+        if (!resp.ok)
+        {
+            bool success = false;
+
+            for (int attempt = 0; attempt < max_retries && !success; ++attempt)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100 * (attempt + 1))); // brief pause before retry
+
+                resp = rpc_send(owner_ip, owner_port, msg);
+
+                if (resp.ok)
+                    success = true;
+            }
+        }
+        return;
+    }
+
+    // store locally (this node is the owner)
+    {
+        std::lock_guard<std::mutex> lock(data_mutex);
+
+        data[key] = {value, true}; // mark as primary replica
+    }
+
+    // replicate to successor nodes
+    std::vector<Finger> replication_targets;
+    u64 succ_id_local = id;
+    std::string succ_ip_local = ip;
+    int succ_node_port = port;
+    {
+        std::lock_guard<std::mutex> lock(state_mutex);
+
+        succ_id_local = successor_id;
+        succ_ip_local = successor_ip;
+        succ_node_port = successor_port;
+    }
+
+    if (succ_id_local == id) // if self is the only node, no replication needed
+        return;
+
+    replication_targets.emplace_back(succ_id_local, succ_ip_local, succ_node_port);
+
+    while ((int)replication_targets.size() < replication_factor)
+    {
+        auto [replica_node_id, replica_node_ip, replica_node_port] = replication_targets.back();
+
+         // if self, stop replicating further
+        if (replica_node_id == id)
+            break;
+        
+        std::string rep_msg = "GET_SUCCESSOR";
+        RPCResponse rep_resp = rpc_send(replica_node_ip, replica_node_port, rep_msg);
+
+        if (!rep_resp.ok)
+            break;
+
+        std::istringstream rep_iss(rep_resp.body);
+        u64 nid;
+        std::string nip;
+        int nport;
+        rep_iss >> nid >> nip >> nport;
+
+        if (rep_iss.fail())
+            break;
+
+        bool duplicate = false;
+        for (const auto &t : replication_targets)
+        {
+            auto [existing_id, _, __] = t;
+            if (existing_id == nid)
+            {
+                duplicate = true;
+                break;
+            }
+        }
+
+        if (duplicate)
+            break;
+
+        replication_targets.emplace_back(nid, nip, nport);
+    }
+
+    for (auto &t : replication_targets)
+    {
+        auto [replica_node_id, replica_node_ip, replica_node_port] = t;
+
+        if (replica_node_id == id) // skip self
+            continue;
+
+        std::string msg = "PUT_REPLICA " + key + " " + value;
+        rpc_send(replica_node_ip, replica_node_port, msg);
+    }
+}
+
+std::ostream &operator<<(std::ostream &os, const DataItem &item)
+{
+    os << item.value << " (";
+    os << std::string(item.primary ? "primary" : "replica") << ")";
+
+    return os;
+}
+
+std::string operator+(const std::string &lhs, const DataItem &item)
+{
+    return lhs + item.value + " (" + std::string(item.primary ? "primary" : "replica") + ")";
 }
