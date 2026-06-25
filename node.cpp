@@ -18,6 +18,8 @@ std::atomic<bool> isLeaving = false;
 std::atomic<bool> has_transferred_keys = false;
 const int replication_factor = 3;
 
+const unsigned REPAIR_INTERVAL = 5; // 5 seconds
+
 void handle_rpc(int client_fd, const std::string &msg)
 {
     std::stringstream ss(msg);
@@ -348,6 +350,8 @@ int main(int argc, char **argv)
     ChordNode node(ip, port, m_bits);
     SELF = &node;
 
+    unsigned repair_counter = 0;
+
     const char *bootstrap_env = std::getenv("BOOTSTRAP");
     if (bootstrap_env != nullptr)
     {
@@ -378,6 +382,13 @@ int main(int argc, char **argv)
             node.fix_fingers();
             node.check_predecessor();
             node.check_successor();
+
+            repair_counter++;
+            if (repair_counter >= REPAIR_INTERVAL) // repair replicas every REPAIR_INTERVAL seconds
+            {
+                node.repair_replicas();
+                repair_counter = 0;
+            }
         }
     });
 

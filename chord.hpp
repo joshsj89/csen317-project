@@ -71,6 +71,7 @@ public:
 
     void stabilize();
     void fix_fingers();
+    void repair_replicas();
     Finger find_successor(u64 id);
     void check_predecessor();
     void check_successor();
@@ -79,6 +80,7 @@ public:
     bool is_alive(std::string check_ip, int check_port);
     bool is_stable();
 
+    void push_replicas(const std::string &key, const std::string &value);
     void replicate_key(const std::string &key, const std::string &value);
 
 private:

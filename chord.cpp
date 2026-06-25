@@ -900,6 +900,23 @@ void ChordNode::fix_fingers()
     // }
 }
 
+void ChordNode::repair_replicas()
+{
+    std::vector<std::pair<std::string, DataItem>> local_data;
+    {
+        std::lock_guard<std::mutex> lock(data_mutex);
+
+        for (const auto &kv : data)
+            if (kv.second.primary)
+                local_data.emplace_back(kv.first, kv.second);
+    }
+
+    for (const auto &kv : local_data)
+    {
+        push_replicas(kv.first, kv.second.value);
+    }
+}
+
 void ChordNode::recompute_finger_table()
 {
     for (int k = 0; k < m; ++k)
@@ -946,41 +963,8 @@ bool ChordNode::is_stable()
     return stable_rounds >= STABLE_ROUNDS_REQUIRED;
 }
 
-void ChordNode::replicate_key(const std::string &key, const std::string &value)
+void ChordNode::push_replicas(const std::string &key, const std::string &value)
 {
-    u64 key_id = hash_str(key) % (1ULL << m);
-    auto [owner_id, owner_ip, owner_port] = find_successor(key_id);
-
-    // if this node is not the owner, forward request
-    if (owner_id != id)
-    {
-        std::string msg = "PUT " + key + " " + value;
-        RPCResponse resp = rpc_send(owner_ip, owner_port, msg);
-
-        if (!resp.ok)
-        {
-            bool success = false;
-
-            for (int attempt = 0; attempt < max_retries && !success; ++attempt)
-            {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100 * (attempt + 1))); // brief pause before retry
-
-                resp = rpc_send(owner_ip, owner_port, msg);
-
-                if (resp.ok)
-                    success = true;
-            }
-        }
-        return;
-    }
-
-    // store locally (this node is the owner)
-    {
-        std::lock_guard<std::mutex> lock(data_mutex);
-
-        data[key] = {value, true}; // mark as primary replica
-    }
-
     // replicate to successor nodes
     std::vector<Finger> replication_targets;
     u64 succ_id_local = id;
@@ -1049,6 +1033,44 @@ void ChordNode::replicate_key(const std::string &key, const std::string &value)
         std::string msg = "PUT_REPLICA " + key + " " + value;
         rpc_send(replica_node_ip, replica_node_port, msg);
     }
+}
+
+void ChordNode::replicate_key(const std::string &key, const std::string &value)
+{
+    u64 key_id = hash_str(key) % (1ULL << m);
+    auto [owner_id, owner_ip, owner_port] = find_successor(key_id);
+
+    // if this node is not the owner, forward request
+    if (owner_id != id)
+    {
+        std::string msg = "PUT " + key + " " + value;
+        RPCResponse resp = rpc_send(owner_ip, owner_port, msg);
+
+        if (!resp.ok)
+        {
+            bool success = false;
+
+            for (int attempt = 0; attempt < max_retries && !success; ++attempt)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100 * (attempt + 1))); // brief pause before retry
+
+                resp = rpc_send(owner_ip, owner_port, msg);
+
+                if (resp.ok)
+                    success = true;
+            }
+        }
+        return;
+    }
+
+    // store locally (this node is the owner)
+    {
+        std::lock_guard<std::mutex> lock(data_mutex);
+
+        data[key] = {value, true}; // mark as primary replica
+    }
+
+    push_replicas(key, value); // replicate to successors
 }
 
 std::ostream &operator<<(std::ostream &os, const DataItem &item)
