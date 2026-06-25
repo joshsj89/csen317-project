@@ -215,7 +215,7 @@ void ChordNode::leave()
             bool transferred = false;
             for (int attempt = 0; attempt < max_retries && !transferred; ++attempt)
             {
-                std::string transfer_msg = "PUT " + kv.first + " " + kv.second.value;
+                std::string transfer_msg = "PUT_PRIMARY " + kv.first + " " + kv.second.value;
                 RPCResponse transfer_resp = rpc_send(successor_ip_local, successor_port_local, transfer_msg);
 
                 if (transfer_resp.ok)
@@ -396,7 +396,7 @@ void ChordNode::transfer_keys(u64 new_node_id, std::string new_node_ip, int new_
 
         for (int attempt = 0; attempt < max_retries && !transferred; ++attempt)
         {
-            std::string msg = "PUT_DIRECT " + kv.first + " " + kv.second.value;
+            std::string msg = "PUT_PRIMARY " + kv.first + " " + kv.second.value;
             RPCResponse resp = rpc_send(new_node_ip, new_node_port, msg);
 
             if (resp.ok)

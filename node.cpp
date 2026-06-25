@@ -150,6 +150,24 @@ void handle_rpc(int client_fd, const std::string &msg)
         std::string reply = "OK stored\n";
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
+    else if (cmd == "PUT_PRIMARY") // Store primary replica directly
+    {
+        std::string key, value;
+        ss >> key;
+        std::getline(ss, value); // read the rest of the line as value (allow spaces)
+        if (!value.empty() && value[0] == ' ') 
+            value.erase(0, 1); // remove leading space
+
+        // store primary replica locally
+        {
+            std::lock_guard<std::mutex> lock(SELF->data_mutex);
+
+            SELF->data[key] = {value, true}; // mark as primary replica
+        }
+
+        std::string reply = "OK primary_stored\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
     else if (cmd == "PUT_REPLICA") // Store replica directly (no owner check)
     {
         std::string key, value;
@@ -166,24 +184,6 @@ void handle_rpc(int client_fd, const std::string &msg)
         }
 
         std::string reply = "OK replica_stored\n";
-        send(client_fd, reply.c_str(), reply.size(), 0);
-    }
-    else if (cmd == "PUT_DIRECT") // Store directly without owner check (used during key transfer)
-    {
-        std::string key, value;
-        ss >> key;
-        std::getline(ss, value); // read the rest of the line as value (allow spaces)
-        if (!value.empty() && value[0] == ' ') 
-            value.erase(0, 1); // remove leading space
-
-        // store directly without owner check
-        {
-            std::lock_guard<std::mutex> lock(SELF->data_mutex);
-
-            SELF->data[key] = {value, false}; // mark as replica (not primary)
-        }
-
-        std::string reply = "OK direct_stored\n";
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
     else if (cmd == "GET")
