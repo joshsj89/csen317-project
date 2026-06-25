@@ -173,7 +173,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         {
             std::lock_guard<std::mutex> lock(SELF->data_mutex);
 
-            SELF->data[key] = value;
+            SELF->data[key] = {value, true}; // mark as primary replica
         }
 
         // replicate to successor nodes
@@ -261,7 +261,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         {
             std::lock_guard<std::mutex> lock(SELF->data_mutex);
 
-            SELF->data[key] = value;
+            SELF->data[key] = {value, false}; // mark as replica (not primary)
         }
 
         std::string reply = "OK replica_stored\n";
@@ -279,7 +279,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         {
             std::lock_guard<std::mutex> lock(SELF->data_mutex);
 
-            SELF->data[key] = value;
+            SELF->data[key] = {value, false}; // mark as replica (not primary)
         }
 
         std::string reply = "OK direct_stored\n";
@@ -293,8 +293,8 @@ void handle_rpc(int client_fd, const std::string &msg)
         // check locally first
         if (SELF->data.count(key))
         {
-            auto value = SELF->data[key];
-            std::string reply = "OK " + value + "\n";
+            auto dataItem = SELF->data[key];
+            std::string reply = "OK " + dataItem + "\n";
             send(client_fd, reply.c_str(), reply.size(), 0);
         }
         else
@@ -378,7 +378,7 @@ void handle_rpc(int client_fd, const std::string &msg)
 
         // check locally first
         if (SELF->data.count(key))
-            value = SELF->data[key];
+            value = SELF->data[key].value;
         else
             value = SELF->get(key);
 
@@ -401,8 +401,8 @@ void handle_rpc(int client_fd, const std::string &msg)
     else if (cmd == "DOCKER_FILES")
     {
         std::cout << "Stored files/keys:" << std::endl;
-        for (const auto &kv : SELF->data)
-            std::cout << "  " << kv.first << " => " << kv.second << std::endl;
+        for (const auto &[key, dataItem] : SELF->data)
+            std::cout << std::format("{:<10} : {}\n", key, dataItem);
 
         std::string reply = "OK files_listed\n";
         send(client_fd, reply.c_str(), reply.size(), 0);
@@ -568,7 +568,7 @@ int main(int argc, char **argv)
                 
                 // check locally first
                 if (node.data.count(key))
-                    value = node.data[key];
+                    value = node.data[key].value;
                 else
                     value = node.get(key);
     
@@ -581,8 +581,8 @@ int main(int argc, char **argv)
             {
                 std::cout << "Stored files/keys:" << std::endl;
                 std::cout << "------------------" << std::endl;
-                for (const auto &[key, value] : node.data)
-                    std::cout << std::format("{:<10} : {}\n", key, value);
+                for (const auto &[key, dataItem] : node.data)
+                    std::cout << std::format("{:<10} : {}\n", key, dataItem);
                 std::cout << "------------------" << std::endl;
             }
             else if (cmd == "help")

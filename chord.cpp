@@ -192,7 +192,7 @@ void ChordNode::leave()
 
     if (successor_id_local != id) // if not the only node, transfer keys and notify neighbors
     {
-        std::vector<std::pair<std::string, std::string>> primary_data_copy;
+        std::vector<std::pair<std::string, DataItem>> primary_data_copy;
         {
             std::lock_guard<std::mutex> lock(data_mutex);
 
@@ -215,7 +215,7 @@ void ChordNode::leave()
             bool transferred = false;
             for (int attempt = 0; attempt < max_retries && !transferred; ++attempt)
             {
-                std::string transfer_msg = "PUT " + kv.first + " " + kv.second;
+                std::string transfer_msg = "PUT " + kv.first + " " + kv.second.value;
                 RPCResponse transfer_resp = rpc_send(successor_ip_local, successor_port_local, transfer_msg);
 
                 if (transfer_resp.ok)
@@ -388,7 +388,7 @@ std::string ChordNode::get(const std::string &key)
         std::lock_guard<std::mutex> lock(data_mutex);
 
         if (data.count(key))
-            return data[key];
+            return data[key].value;
         else
             return ""; // key not found
     }
@@ -445,7 +445,7 @@ void ChordNode::transfer_keys(u64 new_node_id, std::string new_node_ip, int new_
             keys_snapshot.push_back(kv.first);
     }
     
-    std::vector<std::pair<std::string, std::string>> keys_to_transfer;
+    std::vector<std::pair<std::string, DataItem>> keys_to_transfer;
     // Identify keys that should be transferred to the new node
     for (const auto &key : keys_snapshot)
     {
@@ -478,14 +478,14 @@ void ChordNode::transfer_keys(u64 new_node_id, std::string new_node_ip, int new_
         if (!should_transfer)
             continue;
         
-        std::string value;
+        DataItem dataItem;
         {
             std::lock_guard<std::mutex> dlock(data_mutex);
 
-            value = data[key];
+            dataItem = data[key];
         }
 
-        keys_to_transfer.emplace_back(key, value);
+        keys_to_transfer.emplace_back(key, dataItem);
     }
 
     // Transfer keys to the new node
@@ -495,7 +495,7 @@ void ChordNode::transfer_keys(u64 new_node_id, std::string new_node_ip, int new_
 
         for (int attempt = 0; attempt < max_retries && !transferred; ++attempt)
         {
-            std::string msg = "PUT_DIRECT " + kv.first + " " + kv.second;
+            std::string msg = "PUT_DIRECT " + kv.first + " " + kv.second.value;
             RPCResponse resp = rpc_send(new_node_ip, new_node_port, msg);
 
             if (resp.ok)

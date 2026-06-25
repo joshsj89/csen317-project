@@ -1,8 +1,10 @@
 #pragma once
 #include <atomic>
 #include <cstdint>
+#include <format>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -37,7 +39,7 @@ public:
     int m; // number of bits in identifier space
     std::vector<FingerEntry> finger_table;
     std::vector<Finger> successor_list;
-    std::unordered_map<std::string, std::string> data; // key-value store / files
+    std::unordered_map<std::string, DataItem> data; // key-value store / files
 
     std::mutex successor_list_mutex;
     std::mutex finger_table_mutex;
@@ -80,3 +82,17 @@ extern std::atomic<bool> joining; // global flag to indicate if node is joining
 extern std::atomic<bool> isLeaving; // global flag to indicate if node is leaving
 extern std::atomic<bool> has_transferred_keys; // global flag to indicate if keys have been transferred
 extern const int replication_factor; // number of replicas for each key
+
+template <>
+struct std::formatter<DataItem>
+{
+    constexpr auto parse(std::format_parse_context &ctx) { return ctx.begin(); }
+
+    auto format(const DataItem &item, std::format_context &ctx) const
+    {
+        std::ostringstream oss;
+        oss << item;
+        return std::format_to(ctx.out(), "{}", oss.str());
+    }
+};
+std::string operator+(const std::string &lhs, const DataItem &item);
