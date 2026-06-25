@@ -1080,8 +1080,3 @@ std::ostream &operator<<(std::ostream &os, const DataItem &item)
 
     return os;
 }
-
-std::string operator+(const std::string &lhs, const DataItem &item)
-{
-    return lhs + item.value + " (" + std::string(item.primary ? "primary" : "replica") + ")";
-}

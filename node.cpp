@@ -197,7 +197,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         if (SELF->data.count(key))
         {
             auto dataItem = SELF->data[key];
-            std::string reply = "OK " + dataItem + "\n";
+            std::string reply = "OK " + dataItem.value + "\n";
             send(client_fd, reply.c_str(), reply.size(), 0);
         }
         else
@@ -289,7 +289,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         {
             std::cout << std::format("{:<10} : {}\n", key, value);
 
-            std::string reply = "OK retrieved\n";
+            std::string reply = "OK " + value + "\n";
             send(client_fd, reply.c_str(), reply.size(), 0);
         }
         else

@@ -85,10 +85,29 @@ do_rpc() {
     if [[ -z "$resp" ]]; then
         echo "${lat}|TIMEOUT|"
     else
-        # trim whitespace
-        resp="$(echo "$resp" | tr -d '\r\n')"
+        # trim OK and whitespace
+        resp="$(echo "$resp" | sed -e 's/^OK[[:space:]]*//')"
         echo "${lat}|OK|${resp}"
     fi
+}
+
+# Function to check whether what GET returns matches the expected value
+check_get() {
+    local port=$1
+    local key=$2
+    local expected_value=$3
+
+    local res=$(do_rpc $port "DOCKER_GET $key")
+    IFS='|' read -r lat status body <<< "$res"
+    if [[ "$status" != "OK" ]]; then
+        echo "GET $key from port $port failed with status $status"
+        return 1
+    fi
+    if [[ "$body" != "$expected_value" ]]; then
+        echo "GET $key from port $port returned '$body', expected '$expected_value'"
+        return 1
+    fi
+    return 0
 }
 
 # Collect put/get latencies and success
@@ -172,11 +191,9 @@ sleep 3
 fails=0
 total=0
 
-> metrics_fail.txt
-
 for key in "${KEYS[@]}"; do
     port=$((BASE + (RANDOM % N)))
-    printf "DOCKER_GET $key\n" | nc 127.0.0.1 $port >/dev/null
+    check_get $port $key "${VALUES[$((total))]}"
     if [[ $? -ne 0 ]]; then
         fails=$((fails + 1))
     fi

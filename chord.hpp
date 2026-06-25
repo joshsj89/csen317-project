@@ -107,4 +107,3 @@ struct std::formatter<DataItem>
         return std::format_to(ctx.out(), "{}", oss.str());
     }
 };
-std::string operator+(const std::string &lhs, const DataItem &item);
