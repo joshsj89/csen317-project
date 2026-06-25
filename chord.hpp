@@ -21,6 +21,14 @@ struct FingerEntry
     int node_port;
 };
 
+struct DataItem
+{
+    std::string value;
+    bool primary; // true if this is the primary replica
+
+    friend std::ostream &operator<<(std::ostream &os, const DataItem &item);
+};
+
 class ChordNode
 {
 public:
