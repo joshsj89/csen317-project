@@ -72,6 +72,7 @@ public:
     void stabilize();
     void fix_fingers();
     void repair_replicas();
+    void repair_primary_status();
     Finger find_successor(u64 id);
     void check_predecessor();
     void check_successor();

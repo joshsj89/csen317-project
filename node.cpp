@@ -194,7 +194,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         ss >> key;
 
         // check locally first
-        if (SELF->data.count(key))
+        if (SELF->data.count(key) && SELF->data[key].primary)
         {
             auto dataItem = SELF->data[key];
             std::string reply = "OK " + dataItem.value + "\n";
@@ -280,7 +280,7 @@ void handle_rpc(int client_fd, const std::string &msg)
         ss >> key;
 
         // check locally first
-        if (SELF->data.count(key))
+        if (SELF->data.count(key) && SELF->data[key].primary)
             value = SELF->data[key].value;
         else
             value = SELF->get(key);
@@ -386,6 +386,7 @@ int main(int argc, char **argv)
             repair_counter++;
             if (repair_counter >= REPAIR_INTERVAL) // repair replicas every REPAIR_INTERVAL seconds
             {
+                node.repair_primary_status();
                 node.repair_replicas();
                 repair_counter = 0;
             }
@@ -479,7 +480,7 @@ int main(int argc, char **argv)
                 ss >> key;
                 
                 // check locally first
-                if (node.data.count(key))
+                if (node.data.count(key) && node.data[key].primary)
                     value = node.data[key].value;
                 else
                     value = node.get(key);

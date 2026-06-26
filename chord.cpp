@@ -917,6 +917,20 @@ void ChordNode::repair_replicas()
     }
 }
 
+// Repair the primary status of keys in the local data store (e.g. after a owner node fail)
+void ChordNode::repair_primary_status()
+{
+    std::lock_guard<std::mutex> lock(data_mutex);
+
+    for (auto &[key, item] : data)
+    {
+        u64 key_id = hash_str(key) % (1ULL << m);
+        auto [owner_id, _, __] = find_successor(key_id);
+
+        item.primary = (owner_id == id);
+    }
+}
+
 void ChordNode::recompute_finger_table()
 {
     for (int k = 0; k < m; ++k)
