@@ -185,7 +185,7 @@ kill -9 $pid
 wait $pid 2>/dev/null # silence Bash messages
 sed -i "${kill_node}d" pids.txt # remove from pids.txt
 
-sleep 3
+sleep 5 # wait a bit for the network to stabilize/repair after node failure
 
 # Try GET on all keys and count failures
 fails=0
