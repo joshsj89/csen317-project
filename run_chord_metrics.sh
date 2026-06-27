@@ -17,13 +17,13 @@ now_ms() { date +%s%3N; }
 echo "Launching $N Chord nodes..."
 
 # Start first node
-AUTORUN=1 ./chord_sim 127.0.0.1 $BASE $M > logs/node1.log 2>&1 &
+AUTORUN=1 ./chord_sim 127.0.0.1 $BASE $M > logs/node0.log 2>&1 &
 echo $! > pids.txt
 sleep 1
 
 # Start remaining nodes + measure join time
-for i in $(seq 2 $N); do
-    port=$((BASE + i - 1))
+for i in $(seq 1 $((N - 1))); do
+    port=$((BASE + i))
 
     join_start=$(now_ms)
 
@@ -53,8 +53,8 @@ st_start=$(now_ms)
 while true; do # check if all nodes report stable
     stable=true
 
-    for i in $(seq 1 $N); do
-        port=$((BASE + i - 1))
+    for i in $(seq 0 $((N - 1))); do
+        port=$((BASE + i))
         resp=$(printf "IS_STABLE\n" | nc 127.0.0.1 $port 2>/dev/null)
         if [[ "$resp" != "OK 1" ]]; then
             stable=false
@@ -150,8 +150,8 @@ total_hops=0
 
 > metrics_hops.txt
 
-for i in $(seq 1 $N); do
-    port=$((BASE + i - 1))
+for i in $(seq 0 $((N - 1))); do
+    port=$((BASE + i))
 
     metrics=$(printf "GET_METRICS\n" | nc 127.0.0.1 $port 2>/dev/null)
 
@@ -177,13 +177,13 @@ if [[ $total_calls -gt 0 ]]; then
 fi
 
 # Kill a random node
-kill_node=$(( (RANDOM % N) + 1 )) # +1 because nodes are 1-indexed in pids.txt
-echo "Killing node $kill_node"
+kill_node=$((RANDOM % N))
+echo "Killing node $kill_node (port $((BASE + kill_node)))..."
 
-pid=$(sed -n "${kill_node}p" pids.txt) # get pid of node to kill
+pid=$(sed -n "$((kill_node + 1))p" pids.txt) # get pid of node to kill
 kill -9 $pid
 wait $pid 2>/dev/null # silence Bash messages
-sed -i "${kill_node}d" pids.txt # remove from pids.txt
+sed -i "$((kill_node + 1))d" pids.txt # remove from pids.txt
 
 sleep 5 # wait a bit for the network to stabilize/repair after node failure
 
@@ -193,6 +193,12 @@ total=0
 
 for key in "${KEYS[@]}"; do
     port=$((BASE + (RANDOM % N)))
+
+    # Avoid the killed node
+    while [[ $port -eq $((BASE + kill_node)) ]]; do
+        port=$((BASE + (RANDOM % N)))
+    done
+
     check_get $port $key "${VALUES[$((total))]}"
     if [[ $? -ne 0 ]]; then
         fails=$((fails + 1))
@@ -208,7 +214,8 @@ echo "FAILURE_RATE $(awk "BEGIN {print $fails/$total*100}")%" >> metrics_fail.tx
 # ls -1 metrics_*.txt logs/*.log | sed -e 's/^/  /'
 
 echo "Cleaning up: killing all remaining nodes..."
-{ cat pids.txt | xargs kill -9; } 2>/dev/null # kill all remaining nodes and silence Bash messages
+# { cat pids.txt | xargs kill -9; } 2>/dev/null # kill all remaining nodes and silence Bash messages
+{ pidof chord_sim | xargs kill -9; } 2>/dev/null # kill all remaining nodes and silence Bash messages
 rm -f pids.txt
 
 echo "All done. Metrics collected in metrics_*.txt, logs in logs/*.log"
