@@ -343,6 +343,71 @@ void handle_rpc(int client_fd, const std::string &msg)
         std::string reply = "OK " + std::string(stable ? "1" : "0") + "\n";
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
+    else if (cmd == "GET_FINGERS")
+    {
+        std::vector<FingerEntry> local_fingers;
+        {
+            std::lock_guard<std::mutex> lock(SELF->finger_table_mutex);
+            local_fingers = SELF->finger_table; // copy to avoid holding lock during checks
+        }
+
+        std::string reply = "OK\n";
+        for (const auto &f : local_fingers)
+        {
+            reply += std::to_string(f.start) + " " +
+                     std::to_string(f.node_id) + " " +
+                     f.node_ip + " " +
+                     std::to_string(f.node_port) + "\n";
+        }
+
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
+    else if (cmd == "LIST_KEYS")
+    {
+        std::vector<std::pair<std::string, DataItem>> local_data;
+        {
+            std::lock_guard<std::mutex> lock(SELF->data_mutex);
+            for (const auto &[key, item] : SELF->data)
+                local_data.push_back({key, item}); // copy to avoid holding lock during checks
+        }
+
+        std::string reply = "OK\n";
+        for (const auto &[key, item] : local_data)
+        {
+            reply += key + " " + (item.primary ? "primary" : "replica") + "\n";
+        }
+
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
+    else if (cmd == "GET_RING")
+    {
+        u64 succ_id_local;
+        u64 pred_id_local;
+        {
+            std::lock_guard<std::mutex> lock(SELF->state_mutex);
+
+            succ_id_local = SELF->successor_id;
+            pred_id_local = SELF->predecessor_id;
+        }
+
+        std::string reply = "OK " + std::to_string(pred_id_local) + " " + std::to_string(SELF->id) + " " + std::to_string(succ_id_local) + "\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
+    else if (cmd == "HASH")
+    {
+        std::string input;
+        ss >> input;
+
+        u64 hash_value = hash_str(input) % (1ULL << SELF->m);
+
+        std::string reply = "OK " + std::to_string(hash_value) + "\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
+    else if (cmd == "GET_NODE_ID")
+    {
+        std::string reply = "OK " + std::to_string(SELF->id) + "\n";
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
     else
     {
         std::string reply = "ERR unknown_command\n";
