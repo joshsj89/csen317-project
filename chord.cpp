@@ -834,7 +834,6 @@ void ChordNode::fix_fingers()
 {
     static int next_finger = 0;
     u64 start;
-    
     {
         std::lock_guard<std::mutex> lock(finger_table_mutex);
 
@@ -850,54 +849,9 @@ void ChordNode::fix_fingers()
         finger_table[next_finger].node_id = finger_id;
         finger_table[next_finger].node_ip = finger_ip;
         finger_table[next_finger].node_port = finger_port;
-    
     }
     
     next_finger = (next_finger + 1) % m;
-
-    // Rebuild successor list for replication only if node is stable
-    if (joining || isLeaving)
-        return;
-    // {
-    //     std::lock_guard<std::mutex> sl_lock(successor_list_mutex);
-
-    //     successor_list.clear();
-    
-    //     // if this node is the only node, fill successor list with self
-    //     if (successor_id == id)
-    //     {
-    //         for (int i = 0; i < replication_factor; ++i)
-    //             successor_list.emplace_back(id, ip, port);
-    
-    //         return;
-    //     }
-    
-    //     // Start from immediate successor
-    //     Finger current_successor = {successor_id, successor_ip, successor_port};
-    
-    //     for (int i = 0; i < replication_factor; ++i)
-    //     {
-    //         successor_list.push_back(current_successor);
-    
-    //         u64 curr_id = std::get<0>(current_successor);
-    //         u64 next_id = (curr_id + 1) % (1ULL << m);
-    
-    //         // find successor of next_id (which is the successor of curr_id)
-    //         try
-    //         {
-    //             current_successor = find_successor(next_id);
-    //         }
-    //         catch(...)
-    //         {
-    //            // if RPC fails, fill remaining slots with self
-    //               for (int j = i + 1; j < replication_factor; ++j)
-    //                 successor_list.emplace_back(id, ip, port);
-    
-    //             break;
-    //         }
-            
-    //     }
-    // }
 }
 
 void ChordNode::repair_replicas()
