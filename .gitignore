@@ -44,3 +44,4 @@ chord_sim
 kademlia_experiment
 kademlia_sim
 chord_protocol
+tests/correctness_errors.log
