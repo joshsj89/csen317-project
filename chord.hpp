@@ -83,6 +83,7 @@ public:
 
     void push_replicas(const std::string &key, const std::string &value);
     void replicate_key(const std::string &key, const std::string &value);
+    bool should_store_replica(const std::string &key);
 
 private:
     const int max_retries = 3;

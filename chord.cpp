@@ -616,8 +616,8 @@ void ChordNode::stabilize()
                 continue;
             }
 
-            // ask curr for its successor (GET_INFO / or use FIND_SUCCESSOR for next key)
-            RPCResponse r = rpc_send(curr_ip, curr_port, "GET_INFO");
+            // ask curr for its successor
+            RPCResponse r = rpc_send(curr_ip, curr_port, "GET_SUCCESSOR");
             if (!r.ok)
             {
                 // if RPC failed, push self to fill remaining slots
@@ -907,13 +907,21 @@ void ChordNode::repair_replicas()
         std::lock_guard<std::mutex> lock(data_mutex);
 
         for (const auto &kv : data)
-            if (kv.second.primary)
-                local_data.emplace_back(kv.first, kv.second);
+            local_data.emplace_back(kv.first, kv.second);
     }
 
     for (const auto &kv : local_data)
     {
-        push_replicas(kv.first, kv.second.value);
+        if (kv.second.primary) // if this node is the primary owner of the key, replicate it to successors
+            push_replicas(kv.first, kv.second.value);
+        else // if this node is not the primary owner, check if it should still store the replica
+        {
+            if (!should_store_replica(kv.first))
+            {
+                std::lock_guard<std::mutex> lock(data_mutex);
+                data.erase(kv.first); // remove replica if this node is no longer in the replication chain for the key
+            }
+        }
     }
 }
 
@@ -1085,6 +1093,52 @@ void ChordNode::replicate_key(const std::string &key, const std::string &value)
     }
 
     push_replicas(key, value); // replicate to successors
+}
+
+// Check if this node should store a replica of the given key
+bool ChordNode::should_store_replica(const std::string &key)
+{
+    u64 key_id = hash_str(key) % (1ULL << m);
+    auto [owner_id, owner_ip, owner_port] = find_successor(key_id);
+
+    std::vector<Finger> owner_successors; // get the successor list of the owner node, not the current node
+    {
+        std::lock_guard<std::mutex> lock(successor_list_mutex);
+
+        // if this node is the owner, use its own successor list
+        if (owner_id == id)
+        {
+            owner_successors = successor_list;
+        }
+        else // otherwise, request the successor list from the owner node
+        {
+            std::string msg = "GET_SUCCESSOR_LIST";
+            RPCResponse resp = rpc_send(owner_ip, owner_port, msg);
+
+            if (!resp.ok)
+                return false; // failed to get owner's successor list
+
+            std::istringstream iss(resp.body);
+            u64 succ_id;
+            std::string succ_ip;
+            int succ_port;
+
+            while (iss >> succ_id >> succ_ip >> succ_port)
+            {
+                owner_successors.emplace_back(succ_id, succ_ip, succ_port);
+            }
+        }
+    }
+
+    // Check if this node is in the owner's successor list
+    for (const auto &s : owner_successors)
+    {
+        auto [succ_id, _, __] = s;
+        if (succ_id == id)
+            return true; // this node is a successor of the owner
+    }
+
+    return false; // this node is not a successor of the owner
 }
 
 std::ostream &operator<<(std::ostream &os, const DataItem &item)

@@ -74,6 +74,23 @@ void handle_rpc(int client_fd, const std::string &msg)
 
         send(client_fd, reply.c_str(), reply.size(), 0);
     }
+    else if (cmd == "GET_SUCCESSOR_LIST")
+    {
+        std::vector<Finger> local_successors;
+        {
+            std::lock_guard<std::mutex> lock(SELF->successor_list_mutex);
+            local_successors = SELF->successor_list; // copy to avoid holding lock during checks
+        }
+
+        std::string reply = "OK";
+        for (const auto &[succ_id, succ_ip, succ_port] : local_successors)
+        {
+            reply += " " + std::to_string(succ_id) + " " + succ_ip + " " + std::to_string(succ_port);
+        }
+        reply += "\n";
+
+        send(client_fd, reply.c_str(), reply.size(), 0);
+    }
     else if (cmd == "GET_INFO")
     {
         std::string reply =
@@ -456,6 +473,18 @@ int main(int argc, char **argv)
                               << ", port: " << entry.node_port << std::endl;
                 }
             }
+            else if (cmd == "successors")
+            {
+                std::lock_guard<std::mutex> lock(node.successor_list_mutex);
+                std::cout << "Successor List:" << std::endl;
+                for (size_t i = 0; i < node.successor_list.size(); ++i)
+                {
+                    const auto &[succ_id, succ_ip, succ_port] = node.successor_list[i];
+                    std::cout << "  [" << i << "] node_id: " << succ_id
+                              << ", ip: " << succ_ip
+                              << ", port: " << succ_port << std::endl;
+                }
+            }
             else if (cmd == "put")
             {
                 std::string key, value;
@@ -505,6 +534,7 @@ int main(int argc, char **argv)
                 std::cout << "  leave                                   - Leave the Chord network\n";
                 std::cout << "  info                                    - Display node information\n";
                 std::cout << "  fingers                                 - Display finger table\n";
+                std::cout << "  successors                              - Display successor list\n";
                 std::cout << "  put <key> <value>                       - Store a key-value pair\n";
                 std::cout << "  get <key>                               - Retrieve value for a key\n";
                 std::cout << "  files                                   - List stored keys\n";
