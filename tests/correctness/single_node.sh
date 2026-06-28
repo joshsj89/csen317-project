@@ -5,15 +5,12 @@ BASE=12000
 M=8
 NUM_KEYS=100
 
-die() {
-    { pidof "chord_sim" | xargs kill -9; } 2>/dev/null
-    echo -e "\033[31mTest 1 Failed: $1\033[0m" >&2
-    exit 1
-}
+source ./utils.sh
 
-# Launch Node
-AUTORUN=1 ../chord_sim 127.0.0.1 $BASE $M 2>&1 &
-pid=$!
+declare -a pids=()
+
+# Launch node
+launch_nodes $BASE $M 1 pids
 
 # Wait for stabilization
 sleep 2
@@ -31,7 +28,7 @@ for i in $(seq 1 $NUM_KEYS); do
     expected_value="value$i"
     actual_value=$(printf "DOCKER_GET $key\n" | nc 127.0.0.1 $BASE | awk '{print $2}')
     if [[ "$actual_value" != "$expected_value" ]]; then
-        die "Expected $expected_value for $key, but got $actual_value"
+        die 1 "Expected $expected_value for $key, but got $actual_value"
     fi
 done
 
@@ -39,19 +36,21 @@ done
 list_keys=$(printf "LIST_KEYS\n" | nc 127.0.0.1 $BASE)
 key_count=$(echo "$list_keys" | grep -c "key[0-9]\+")
 if [[ $key_count -ne $NUM_KEYS ]]; then
-    die "Expected $NUM_KEYS keys, but got $key_count"
+    die 1 "Expected $NUM_KEYS keys, but got $key_count"
 fi
 
 # Check that each key is marked as primary
 for i in $(seq 1 $NUM_KEYS); do
     key="key$i"
     if ! echo "$list_keys" | grep -q "$key primary"; then
-        die "$key is not marked as primary"
+        die 1 "$key is not marked as primary"
     fi
 done
 
 # If we reach this point, the test passed
 echo -e "\033[32mTest 1 Passed: Single Node owns all keys and they are marked as primary.\033[0m"
-kill -9 $pid
-wait $pid 2>/dev/null
+
+# Kill all launched nodes
+kill_nodes pids
+
 exit 0

@@ -5,22 +5,12 @@ BASE=12000
 M=8
 NUM_KEYS=200
 
-die() {
-    { pidof "chord_sim" | xargs kill -9; } 2>/dev/null
-    echo -e "\033[31mTest 2 Failed: $1\033[0m" >&2
-    exit 1
-}
+source ./utils.sh
 
-# Launch Node A
-AUTORUN=1 ../chord_sim 127.0.0.1 $BASE $M 2>&1 &
-pidA=$!
+declare -a pids=()
 
-# Launch Node B
-AUTORUN=1 ../chord_sim 127.0.0.1 $((BASE + 1)) $M 2>&1 &
-pidB=$!
-
-# Join Node B to Node A
-printf "DOCKER_JOIN 127.0.0.1 $BASE\n" | nc 127.0.0.1 $((BASE + 1)) 2>/dev/null
+# Launch nodes
+launch_nodes $BASE $M 2 pids
 
 # Wait for stabilization
 sleep 2
@@ -49,7 +39,7 @@ for i in $(seq 1 $NUM_KEYS); do
     # Try to retrieve from Node A first
     actual_value=$(printf "DOCKER_GET $key\n" | nc 127.0.0.1 $BASE | awk '{print $2}')
     if [[ "$actual_value" != "$expected_value" ]]; then
-        die "Node A expected $expected_value for $key, but got $actual_value"
+        die 2 "Node A expected $expected_value for $key, but got $actual_value"
     else
         ((successful_retrievals++))
     fi
@@ -57,20 +47,20 @@ for i in $(seq 1 $NUM_KEYS); do
     # Try to retrieve from Node B
     actual_value=$(printf "DOCKER_GET $key\n" | nc 127.0.0.1 $((BASE + 1)) | awk '{print $2}')
     if [[ "$actual_value" != "$expected_value" ]]; then
-        die "Node B expected $expected_value for $key, but got $actual_value"
+        die 2 "Node B expected $expected_value for $key, but got $actual_value"
     else
         ((successful_retrievals++))
     fi
 done
 
 if [[ $successful_retrievals -ne $((NUM_KEYS * 2)) ]]; then
-    die "Not all keys were successfully retrieved from both nodes."
+    die 2 "Not all keys were successfully retrieved from both nodes."
 fi
 
 # If we reach this point, the test passed
 echo -e "\033[32mTest 2 Passed: Two-Node Routing works correctly.\033[0m"
-kill -9 $pidA
-wait $pidA 2>/dev/null
-kill -9 $pidB
-wait $pidB 2>/dev/null
+
+# Kill all launched nodes
+kill_nodes pids
+
 exit 0

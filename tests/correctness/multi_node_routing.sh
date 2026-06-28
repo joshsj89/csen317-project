@@ -6,28 +6,12 @@ M=8
 NUM_NODES=10
 NUM_KEYS=255
 
+source ./utils.sh
+
 declare -a pids=()
 
-die() {
-    { pidof "chord_sim" | xargs kill -9; } 2>/dev/null
-    echo -e "\033[31mTest 3 Failed: $1\033[0m" >&2
-    exit 1
-}
-
-# Launch bootstrap node
-AUTORUN=1 ../chord_sim 127.0.0.1 $BASE $M 2>&1 &
-pids+=($!)
-
-# Launch remaining nodes
-for i in $(seq 1 $((NUM_NODES - 1))); do
-    port=$((BASE + i))
-    AUTORUN=1 ../chord_sim 127.0.0.1 $port $M 2>&1 &
-    pids+=($!)
-    sleep 1
-
-    # Join node to bootstrap node
-    printf "DOCKER_JOIN 127.0.0.1 $BASE\n" | nc 127.0.0.1 $port 2>/dev/null
-done
+# Launch nodes
+launch_nodes $BASE $M $NUM_NODES pids
 
 # Wait for stabilization
 sleep 2
@@ -57,7 +41,7 @@ for i in $(seq 1 $NUM_KEYS); do
         port=$((BASE + j))
         actual_value=$(printf "DOCKER_GET $key\n" | nc 127.0.0.1 $port | awk '{print $2}')
         if [[ "$actual_value" != "$expected_value" ]]; then
-            die "Node $j expected $expected_value for $key, but got $actual_value"
+            die 3 "Node $j expected $expected_value for $key, but got $actual_value"
         else
             ((successful_retrievals++))
         fi
@@ -65,16 +49,13 @@ for i in $(seq 1 $NUM_KEYS); do
 done
 
 if [[ $successful_retrievals -ne $((NUM_KEYS * NUM_NODES)) ]]; then
-    die "Not all keys were successfully retrieved from all nodes."
+    die 3 "Not all keys were successfully retrieved from all nodes."
 fi
 
 # If we reach this point, the test passed
 echo -e "\033[32mTest 3 Passed: Multi-Node Routing works correctly.\033[0m"
 
 # Kill all launched nodes
-for pid in "${pids[@]}"; do
-    kill -9 $pid 2>/dev/null
-    wait $pid 2>/dev/null
-done
+kill_nodes pids
 
 exit 0

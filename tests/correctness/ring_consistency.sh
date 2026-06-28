@@ -5,28 +5,12 @@ BASE=12000
 M=8
 NUM_NODES=10
 
+source ./utils.sh
+
 declare -a pids=()
 
-die() {
-    { pidof "chord_sim" | xargs kill -9; } 2>/dev/null
-    echo -e "\033[31mTest 6 Failed: $1\033[0m" >&2
-    exit 1
-}
-
-# Launch bootstrap node
-AUTORUN=1 ../chord_sim 127.0.0.1 $BASE $M 2>&1 &
-pids+=($!)
-
-# Launch remaining nodes
-for i in $(seq 1 $((NUM_NODES - 1))); do
-    port=$((BASE + i))
-    AUTORUN=1 ../chord_sim 127.0.0.1 $port $M 2>&1 &
-    pids+=($!)
-    sleep 1
-
-    # Join node to bootstrap node
-    printf "DOCKER_JOIN 127.0.0.1 $BASE\n" | nc 127.0.0.1 $port 2>/dev/null
-done
+# Launch nodes
+launch_nodes $BASE $M $NUM_NODES pids
 
 # Wait for stabilization
 sleep 2
@@ -57,7 +41,7 @@ for node in $(seq 0 $((NUM_NODES - 1))); do
     successor_predecessor_id=$(echo "$successor_ring_info" | awk '{print $2}')
 
     if [[ "$successor_predecessor_id" != "${node_ids[$node]}" ]]; then
-        die "Node $node's successor's predecessor ID ($successor_predecessor_id) does not match Node $node's ID (${node_ids[$node]})"
+        die 6 "Node $node's successor's predecessor ID ($successor_predecessor_id) does not match Node $node's ID (${node_ids[$node]})"
     fi
 
     # Ask predecessor for GET_RING and verify that it matches the current node's ID
@@ -68,7 +52,7 @@ for node in $(seq 0 $((NUM_NODES - 1))); do
     predecessor_successor_id=$(echo "$predecessor_ring_info" | awk '{print $4}')
 
     if [[ "$predecessor_successor_id" != "${node_ids[$node]}" ]]; then
-        die "Node $node's predecessor's successor ID ($predecessor_successor_id) does not match Node $node's ID (${node_ids[$node]})"
+        die 6 "Node $node's predecessor's successor ID ($predecessor_successor_id) does not match Node $node's ID (${node_ids[$node]})"
     fi
 done
 
@@ -80,27 +64,24 @@ for i in $(seq 0 $((NUM_NODES - 1))); do
     current_node=$(echo "$successor_info" | awk '{print $4}')
 
     if [[ " ${visited_nodes[@]} " =~ " ${current_node} " ]]; then
-        die "Node $current_node has already been visited. Ring is inconsistent."
+        die 6 "Node $current_node has already been visited. Ring is inconsistent."
     fi
 
     visited_nodes+=($current_node)
 done
 
 if [[ ${#visited_nodes[@]} -ne $NUM_NODES ]]; then
-    die "Not all nodes were visited in the ring walk. Ring is inconsistent."
+    die 6 "Not all nodes were visited in the ring walk. Ring is inconsistent."
 fi
 
 if [[ "$current_node" != "$BASE" ]]; then
-    die "Ring walk did not return to the bootstrap node. Ring is inconsistent."
+    die 6 "Ring walk did not return to the bootstrap node. Ring is inconsistent."
 fi
 
 # If we reach this point, the test passed
 echo -e "\033[32mTest 6 Passed: Ring Consistency Verification works correctly.\033[0m"
 
 # Kill all launched nodes
-for pid in "${pids[@]}"; do
-    kill -9 $pid 2>/dev/null
-    wait $pid 2>/dev/null
-done
+kill_nodes pids
 
 exit 0

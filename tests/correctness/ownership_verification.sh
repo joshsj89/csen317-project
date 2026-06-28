@@ -7,28 +7,12 @@ M=8
 NUM_NODES=10
 NUM_KEYS=200
 
+source ./utils.sh
+
 declare -a pids=()
 
-die() {
-    { pidof "chord_sim" | xargs kill -9; } 2>/dev/null
-    echo -e "\033[31mTest 4 Failed: $1\033[0m" >&2
-    exit 1
-}
-
-# Launch bootstrap node
-AUTORUN=1 ../chord_sim 127.0.0.1 $BASE $M 2>&1 &
-pids+=($!)
-
-# Launch remaining nodes
-for i in $(seq 1 $((NUM_NODES - 1))); do
-    port=$((BASE + i))
-    AUTORUN=1 ../chord_sim 127.0.0.1 $port $M 2>&1 &
-    pids+=($!)
-    sleep 1
-
-    # Join node to bootstrap node
-    printf "DOCKER_JOIN 127.0.0.1 $BASE\n" | nc 127.0.0.1 $port 2>/dev/null
-done
+# Launch nodes
+launch_nodes $BASE $M $NUM_NODES pids
 
 # Wait for stabilization
 sleep 2
@@ -68,7 +52,7 @@ for i in $(seq 1 $NUM_KEYS); do
     key="key$i"
 
     if [[ ${primary_count[$key]} -ne 1 ]]; then
-        die "Key $key has ${primary_count[$key]} primaries (expected 1)"
+        die 4 "Key $key has ${primary_count[$key]} primaries (expected 1)"
     fi
 
     # Verify that the owner is the correct node based on the Chord hash
@@ -79,7 +63,7 @@ for i in $(seq 1 $NUM_KEYS); do
     actual_owner=$(printf "GET_NODE_ID\n" | nc 127.0.0.1 $((BASE + actual_owner_node)) | awk '{print $2}')
 
     if [[ "$actual_owner" -ne "$expected_owner" ]]; then
-        die "Key $key is owned by node $actual_owner, but expected owner is node $expected_owner"
+        die 4 "Key $key is owned by node $actual_owner, but expected owner is node $expected_owner"
     fi
 done
 
@@ -87,9 +71,6 @@ done
 echo -e "\033[32mTest 4 Passed: Ownership Verification works correctly.\033[0m"
 
 # Kill all launched nodes
-for pid in "${pids[@]}"; do
-    kill -9 $pid 2>/dev/null
-    wait $pid 2>/dev/null
-done
+kill_nodes pids
 
 exit 0
