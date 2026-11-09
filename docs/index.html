@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distributed Hash Table | Josh Kindarara</title>
+    <meta name="description" content="A multi-process Chord distributed hash table written from scratch in C++ (TCP RPC, finger tables, stabilization, successor replication), compared against Kademlia. Includes an interactive Chord animation.">
+    <meta property="og:title" content="Distributed Hash Table: Chord vs Kademlia">
+    <meta property="og:description" content="CSEN 317 Distributed Systems project at Santa Clara University: a fault-tolerant Chord DHT in C++, with an interactive walkthrough of how it works.">
+    <meta property="og:image" content="assets/img/hand-ex1-3.jpg">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="site-header">
+        <div class="wrap header-row">
+            <a class="brand" href="https://joshsj89.github.io">← Josh Kindarara</a>
+            <nav aria-label="Sections">
+                <a href="#problem">Problem</a>
+                <a href="#how">How Chord works</a>
+                <a href="#sandbox">Try it</a>
+                <a href="#design">Design</a>
+                <a href="#architecture">Architecture</a>
+                <a href="#kademlia">Kademlia</a>
+                <a href="#results">Results</a>
+                <a href="#research">Research log</a>
+                <a href="#timeline">Timeline</a>
+            </nav>
+        </div>
+    </header>
+
+    <main id="main">
+        <!-- ============ HERO ============ -->
+        <section class="hero">
+            <div class="wrap hero-grid">
+                <div>
+                    <p class="eyebrow">Santa Clara University · CSEN 317 Distributed Systems · Fall 2025</p>
+                    <h1>Distributed Hash Table</h1>
+                    <p class="lede">
+                        A Chord distributed hash table written from scratch in C++. Every node runs as its own
+                        process and talks to the others over TCP. Nodes can join, leave or crash while the
+                        ring keeps serving reads and writes. We compared it against Kademlia to see how the two
+                        designs trade off scalability, latency and fault tolerance.
+                    </p>
+                    <div class="cta">
+                        <a class="btn primary" href="#how">See how it works</a>
+                        <a class="btn" href="https://github.com/joshsj89/csen317-project">Code on GitHub</a>
+                        <a class="btn" href="https://github.com/joshsj89/csen317-project/blob/main/Project%20Report.pdf" target="_blank" rel="noopener">Read the report (PDF)</a>
+                    </div>
+                    <ul class="facts" aria-label="Project facts">
+                        <li><strong>Team</strong> Josh Kindarara · Daryl Ho</li>
+                        <li><strong>Stack</strong> C++20 · POSIX TCP sockets · std::thread · Bash · Docker</li>
+                        <li><strong>Scale</strong> Tested with 10, 50 and 100 live node processes</li>
+                    </ul>
+                </div>
+                <figure class="hero-shot">
+                    <img src="assets/img/hand-ex1-3.jpg" alt="Handwritten worked example: an m = 8 ring with nodes 84, 102, 107 and 143, finger tables for each node computed as n + 2^i, and the steps of a query for key 170 hopping from node 107 to 143 to 84." width="1600" height="1000">
+                    <figcaption>Working the protocol by hand before writing the code: four nodes on a 256-ID ring, their finger tables, and a query for key 170.</figcaption>
+                </figure>
+            </div>
+        </section>
+
+        <!-- ============ PROBLEM ============ -->
+        <section id="problem" class="wrap section">
+            <h2>The problem</h2>
+            <div class="two-col">
+                <div>
+                    <p>
+                        Peer-to-peer file sharing started with Napster. Users kept the files on their own machines, but
+                        one central server kept the index of who had what. That server was a single point of failure
+                        and a bottleneck: when it went down, nobody could find anything.
+                    </p>
+                    <p>
+                        A distributed hash table removes the central index. Keys and nodes are hashed onto the same ID
+                        space, and each node is responsible for one slice of it. Storing every node's location on every
+                        node doesn't scale, so the real question is <em>how to route a lookup</em> when each node knows
+                        only a few others.
+                    </p>
+                    <p>
+                        Chord and Kademlia are the two best-known answers. Both promise O(log N) lookups. Daryl and I
+                        wanted to see what it takes to build one that holds up when processes actually crash, and
+                        how the two designs compare.
+                    </p>
+                </div>
+                <ul class="principles">
+                    <li><span class="icon" aria-hidden="true">#</span><div><strong>Consistent hashing</strong>When a node joins or leaves, only the keys next to it move. The rest of the ring is untouched.</div></li>
+                    <li><span class="icon" aria-hidden="true">log</span><div><strong>O(log N) routing</strong>Each node keeps only <em>m</em> fingers, yet any key can be found in a logarithmic number of hops.</div></li>
+                    <li><span class="icon" aria-hidden="true">×3</span><div><strong>Replication</strong>Every key is also copied to the next three nodes, so a crash doesn't lose data.</div></li>
+                    <li><span class="icon" aria-hidden="true">↻</span><div><strong>Self-stabilizing</strong>A background thread repairs successors, predecessors, fingers and replicas once per second.</div></li>
+                    <li><span class="icon" aria-hidden="true">≠</span><div><strong>No coordinator</strong>Any node can be the entry point for a join, a PUT or a GET.</div></li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- ============ HOW IT WORKS ============ -->
+        <section id="how" class="band">
+            <div class="wrap section">
+                <p class="eyebrow">Interactive walkthrough</p>
+                <h2>How Chord works</h2>
+                <p class="section-lede">
+                    This walkthrough follows the same example as my handwritten notes, and the IDs are real. The page
+                    runs a JavaScript port of the <code>std::hash</code> our C++ code uses, so
+                    <code>node-A</code> lands on 143 here just as it does in the actual program.
+                </p>
+
+                <div class="sim" id="tour">
+                    <div class="sim-stage">
+                        <svg class="ring" viewBox="0 0 520 520" role="img" aria-label="Animated Chord ring. The step text beside it describes what is happening."></svg>
+                        <ul class="legend" aria-hidden="true">
+                            <li><span style="background:var(--accent)"></span>request</li>
+                            <li><span style="background:var(--ok)"></span>reply</li>
+                            <li><span style="background:var(--highlight)"></span>replica</li>
+                            <li><span style="background:var(--err)"></span>failure</li>
+                        </ul>
+                    </div>
+                    <div class="sim-side">
+                        <div class="scene-head">
+                            <h3 class="scene-title">One ring of identifiers</h3>
+                            <span class="scene-step">1 / 8</span>
+                        </div>
+                        <p class="scene-text" aria-live="polite"></p>
+                        <div class="scene-nav">
+                            <button class="btn sm" type="button" data-act="prev">← Back</button>
+                            <button class="btn sm primary" type="button" data-act="next">Next →</button>
+                            <button class="btn sm" type="button" data-act="replay">Replay</button>
+                            <div class="scene-dots" role="group" aria-label="Steps"></div>
+                        </div>
+                        <ol class="sim-log" aria-label="Message log"></ol>
+                        <div class="sim-fingers" hidden></div>
+                        <div class="sim-table"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ SANDBOX ============ -->
+        <section id="sandbox-section" class="wrap section">
+            <p class="eyebrow">Your turn</p>
+            <h2>Try it yourself</h2>
+            <p class="section-lede">
+                Store or look up any key, add nodes by name, or crash one and watch its keys pass to the next
+                node. The sandbox always shows the ring after stabilization has caught up. Click a node to see its finger table.
+            </p>
+            <div class="sim" id="sandbox">
+                <div class="sim-stage">
+                    <svg class="ring" viewBox="0 0 520 520" role="img" aria-label="Interactive Chord ring sandbox."></svg>
+                </div>
+                <div class="sim-side">
+                    <div class="sb-controls">
+                        <div class="sb-row">
+                            <label for="sb-key">Key</label>
+                            <input id="sb-key" type="text" placeholder="e.g. resume.pdf" autocomplete="off" spellcheck="false" value="file1.txt">
+                            <select id="sb-from" aria-label="Start the request at node"></select>
+                        </div>
+                        <p class="sb-hash" aria-live="polite">hash("file1.txt") mod 256 = <b>170</b></p>
+                        <div class="sb-row">
+                            <button class="btn sm primary" type="button" data-act="get">GET</button>
+                            <button class="btn sm" type="button" data-act="put">PUT</button>
+                        </div>
+                        <div class="sb-row">
+                            <label for="sb-node">Nodes</label>
+                            <input id="sb-node" type="text" placeholder="new node name, e.g. 127.0.0.1:12005" autocomplete="off" spellcheck="false">
+                            <button class="btn sm" type="button" data-act="add">Add node</button>
+                        </div>
+                        <div class="sb-row">
+                            <button class="btn sm" type="button" data-act="crash">Crash selected node</button>
+                            <button class="btn sm" type="button" data-act="reset">Reset</button>
+                        </div>
+                        <p class="sb-status" aria-live="polite"></p>
+                    </div>
+                    <ol class="sim-log" aria-label="Message log"></ol>
+                    <div class="sim-fingers" hidden></div>
+                    <div class="sim-table"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ DESIGN ============ -->
+        <section id="design" class="band">
+            <div class="wrap section">
+                <h2>Design decisions</h2>
+                <p class="section-lede">
+                    Most of these came out of the research log I kept while building (<a href="#research">below</a>).
+                    Each choice was weighed against what a two-person, six-week class project could get right.
+                </p>
+                <div class="decisions">
+                    <details open>
+                        <summary>Why a multi-process rewrite</summary>
+                        <p>
+                            Daryl started with a single-process simulator that held every node in one program. Extending it
+                            showed the problem quickly: one process is centralized, synchronous and never fails, so
+                            fingers never go stale, joins are never half-finished, and messages never arrive late.
+                            Stabilization has nothing to fix. I rewrote it so each node is a separate OS process
+                            with its own listener socket. Now crashes are real (<code>kill -9</code>) and stabilization
+                            has to earn its keep.
+                        </p>
+                    </details>
+                    <details>
+                        <summary>Hashing: std::hash instead of SHA-1, and m = 8</summary>
+                        <p>
+                            The proposal called for SHA-1. We used C++'s <code>std::hash</code> on <code>ip:port</code>,
+                            mod 2<sup>m</sup>, because it's fast, needs no extra library, and gives the same result on
+                            every node built with the same toolchain. The cost is that it's compiler-dependent and isn't
+                            cryptographic, which is fine for a closed test network but not for a public one.
+                        </p>
+                        <p>
+                            We ran with <code>m = 8</code>, so 256 IDs. That's small enough to check finger tables by hand
+                            and to read in logs. It also makes collisions possible, so I wrote <code>find_port.cpp</code>
+                            to find ports whose address hashes to a chosen ID when a test needed a specific layout.
+                        </p>
+                    </details>
+                    <details>
+                        <summary>Replication on the next r = 3 successors</summary>
+                        <p>
+                            Replicas go on the owner's immediate successors, not on random nodes. Successors are the
+                            nodes that inherit the key range when the owner leaves, so the copy is already where
+                            it will be needed. The replica set also follows the ring structure without any extra
+                            bookkeeping. Losing data would require several consecutive nodes to fail at once.
+                        </p>
+                        <p>
+                            I kept <em>r</em> constant at 3 instead of scaling it with log N. If each node fails
+                            independently with probability 0.15, a key survives with probability
+                            1 − 0.15³ ≈ <strong>0.997</strong>. That's high enough, and a fixed <em>r</em> keeps
+                            write and stabilization costs predictable. Three is also the default in HDFS, Kafka
+                            and Dynamo-style systems.
+                        </p>
+                    </details>
+                    <details>
+                        <summary>Eventual consistency over quorums</summary>
+                        <p>
+                            A <code>PUT</code> updates the owner first, then pushes <code>PUT_REPLICA</code> to the
+                            successors. Strong consistency would need versioning (vector or Lamport clocks) and a
+                            quorum protocol like Dynamo's or Raft's. That wasn't in scope, and it isn't needed for
+                            Chord's baseline guarantees. The trade-off is a short window during churn where a replica
+                            can lag behind. Replication also helps reads: a node checks its own store first, so many
+                            GETs never leave the node.
+                        </p>
+                    </details>
+                    <details>
+                        <summary>Timeouts and retries on every RPC</summary>
+                        <p>
+                            Every socket has a 1-second send/receive timeout (<code>SO_RCVTIMEO</code> /
+                            <code>SO_SNDTIMEO</code>). Failed calls retry up to 3 times with a growing pause (100, 200,
+                            300&nbsp;ms). Without timeouts, one crashed node would hang its neighbours' stabilize loops
+                            forever. With them, failures are detected quickly and stay contained, so one slow node can't
+                            stall the ring. The accept loop also handles each connection on its own thread, so a slow
+                            caller doesn't block the others.
+                        </p>
+                    </details>
+                    <details>
+                        <summary>A 1-second stabilize loop</summary>
+                        <p>
+                            Every second each node runs <code>stabilize()</code>, <code>fix_fingers()</code>,
+                            <code>check_predecessor()</code> and <code>check_successor()</code>. I started at 500&nbsp;ms
+                            and slowed it to 1&nbsp;s to cut background traffic with up to 100 nodes sharing one laptop.
+                            Stabilization is skipped while a node is in the middle of joining or leaving, so it can't undo
+                            a half-finished change.
+                        </p>
+                    </details>
+                    <details>
+                        <summary>One mutex per structure</summary>
+                        <p>
+                            The finger table, the successor/predecessor pointers, the successor list and the key-value
+                            store each have their own lock. A GET reading the store doesn't block stabilization from
+                            rewriting fingers. The hard lesson was a deadlock when a node crashed: stabilize held the
+                            finger-table lock while it PINGed fingers that might be dead. Now it copies the table under the lock
+                            and makes its RPCs on the copy.
+                        </p>
+                    </details>
+                    <details>
+                        <summary>Cleaning up stale replicas</summary>
+                        <p>
+                            When a node joins, some old replicas fall outside the new replica set. Left alone, the real
+                            replication factor creeps above <em>r</em>, storage grows, and old copies can serve
+                            outdated values. Recalculating every node's replicas globally costs O(N²·F). Only the
+                            neighbourhood of the change actually needs work, which is O(r·F<sub>affected</sub>).
+                        </p>
+                        <p>
+                            This was listed as future work in our December report. I came back to it in June 2026: every
+                            5 seconds, <code>repair_primary_status()</code> re-checks which keys a node actually owns, and
+                            <code>repair_replicas()</code> pushes primaries out again and drops replicas the node
+                            shouldn't hold anymore (<code>should_store_replica()</code> asks the owner for its successor list).
+                        </p>
+                    </details>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ ARCHITECTURE ============ -->
+        <section id="architecture" class="wrap section">
+            <h2>Architecture of a node</h2>
+            <p class="section-lede">
+                Each <code>chord_sim</code> process is a complete peer: a CLI, an RPC server, a background
+                stabilizer, and its share of the data. Nodes communicate only through plain-text commands over TCP.
+            </p>
+
+            <figure class="diagram">
+                <svg viewBox="0 0 900 400" role="img" aria-labelledby="arch-title arch-desc">
+                    <title id="arch-title">Inside one Chord node process</title>
+                    <desc id="arch-desc">Three threads run inside a node: the readline CLI, an RPC listener that starts a thread per connection, and a stabilizer that runs every second. They share four structures, each with its own mutex: the finger table, the successor and predecessor pointers with the successor list, and the key-value store holding primary and replica items. The RPC client sends text commands to other nodes over TCP with a one-second timeout and up to three retries.</desc>
+                    <defs>
+                        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+                        </marker>
+                    </defs>
+
+                    <rect x="20" y="20" width="640" height="360" rx="16" class="group"/>
+                    <text x="44" y="46" class="col" text-anchor="start">chord_sim process (one per node)</text>
+
+                    <!-- threads -->
+                    <rect x="44" y="70" width="180" height="78" rx="10" class="node"/>
+                    <text x="134" y="100" class="title">CLI thread</text>
+                    <text x="134" y="122" class="mono">join · put · get · leave</text>
+
+                    <rect x="250" y="70" width="180" height="78" rx="10" class="node"/>
+                    <text x="340" y="100" class="title">RPC listener</text>
+                    <text x="340" y="122" class="mono">thread per connection</text>
+
+                    <rect x="456" y="70" width="180" height="78" rx="10" class="node warm"/>
+                    <text x="546" y="100" class="title">Stabilizer · 1 s</text>
+                    <text x="546" y="122" class="mono">stabilize · fix_fingers</text>
+
+                    <!-- shared state -->
+                    <rect x="44" y="200" width="134" height="80" rx="8" class="node alt"/>
+                    <text x="111" y="232" class="title">Finger table</text>
+                    <text x="111" y="254" class="mono">m entries</text>
+                    <rect x="194" y="200" width="134" height="80" rx="8" class="node alt"/>
+                    <text x="261" y="232" class="title">Succ / pred</text>
+                    <text x="261" y="254" class="mono">+ successor list</text>
+                    <rect x="344" y="200" width="134" height="80" rx="8" class="node alt"/>
+                    <text x="411" y="232" class="title">Key-value store</text>
+                    <text x="411" y="254" class="mono">primary | replica</text>
+                    <rect x="494" y="200" width="142" height="80" rx="8" class="node alt"/>
+                    <text x="565" y="232" class="title">Metrics</text>
+                    <text x="565" y="254" class="mono">atomic counters</text>
+                    <text x="340" y="304" class="lbl">each structure has its own mutex · state is copied out before slow RPCs</text>
+
+                    <rect x="200" y="322" width="280" height="44" rx="10" class="node"/>
+                    <text x="340" y="349" class="title">RPC client · rpc_send()</text>
+
+                    <path d="M134,148 L134,198" class="edge" marker-end="url(#arrow)"/>
+                    <path d="M340,148 L300,198" class="edge" marker-end="url(#arrow)"/>
+                    <path d="M340,148 L400,198" class="edge" marker-end="url(#arrow)"/>
+                    <path d="M546,148 L140,198" class="edge dashed" marker-end="url(#arrow)"/>
+                    <path d="M546,148 L270,198" class="edge dashed" marker-end="url(#arrow)"/>
+                    <path d="M546,148 L420,198" class="edge dashed" marker-end="url(#arrow)"/>
+                    <path d="M480,344 L700,344" class="edge" marker-end="url(#arrow)"/>
+
+                    <!-- network -->
+                    <text x="790" y="46" class="col">Other nodes</text>
+                    <circle cx="790" cy="130" r="30" class="node"/>
+                    <text x="790" y="135" class="title">102</text>
+                    <circle cx="790" cy="230" r="30" class="node"/>
+                    <text x="790" y="235" class="title">143</text>
+                    <circle cx="790" cy="330" r="30" class="node"/>
+                    <text x="790" y="335" class="title">84</text>
+                    <text x="742" y="370" class="lbl">TCP · text RPC</text>
+                    <path d="M760,112 C720,6 380,6 352,68" class="edge dashed" marker-end="url(#arrow)"/>
+                    <text x="560" y="22" class="lbl">incoming RPCs</text>
+                    <text x="590" y="336" class="lbl">1 s timeout · 3 retries</text>
+                </svg>
+            </figure>
+
+            <h3 class="sub">The RPC protocol</h3>
+            <p class="muted">Plain text over TCP, one command per connection, replies start with <code>OK</code> or <code>ERR</code>. You can drive a node with <code>nc</code>:</p>
+<pre><code>$ echo "FIND_SUCCESSOR 170" | nc 127.0.0.1 12034    # node 143
+OK 84 127.0.0.1 12403
+$ echo "GET file1.txt" | nc 127.0.0.1 12403          # node 84
+OK contents-1</code></pre>
+            <div class="table-wrap">
+                <table class="data">
+                    <thead><tr><th>Group</th><th>Commands</th><th>Used for</th></tr></thead>
+                    <tbody>
+                        <tr><th>Routing</th><td><code>FIND_SUCCESSOR</code> <code>GET_SUCCESSOR</code> <code>GET_SUCCESSOR_LIST</code> <code>GET_PREDECESSOR</code></td><td>Lookups, building the successor list, and stabilize()</td></tr>
+                        <tr><th>Membership</th><td><code>NOTIFY</code> <code>SET_SUCCESSOR</code> <code>SET_PREDECESSOR</code> <code>TRANSFER_KEYS</code> <code>PING</code></td><td>Join, graceful leave, failure detection</td></tr>
+                        <tr><th>Data</th><td><code>PUT</code> <code>PUT_PRIMARY</code> <code>PUT_REPLICA</code> <code>GET</code></td><td>Client writes and reads, key handoff, replication</td></tr>
+                        <tr><th>Testing</th><td><code>DOCKER_JOIN</code> <code>DOCKER_PUT</code> <code>DOCKER_GET</code> <code>IS_STABLE</code> <code>GET_METRICS</code> <code>GET_RING</code> <code>GET_FINGERS</code> <code>LIST_KEYS</code></td><td>Letting scripts drive headless nodes and check their state</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 class="sub">Join, leave and crash</h3>
+            <div class="feature-grid">
+                <article class="card">
+                    <h3>Join</h3>
+                    <p>Ask any node for <code>FIND_SUCCESSOR(id)</code>, adopt the answer as successor, request <code>TRANSFER_KEYS</code> for the keys in (predecessor, id], then <code>NOTIFY</code>. Stabilization fixes everyone else.</p>
+                </article>
+                <article class="card">
+                    <h3>Graceful leave</h3>
+                    <p>Hand every primary key to the successor with <code>PUT_PRIMARY</code>, then link the neighbours directly with <code>SET_PREDECESSOR</code> and <code>SET_SUCCESSOR</code> before exiting.</p>
+                </article>
+                <article class="card">
+                    <h3>Crash</h3>
+                    <p>No goodbye. Neighbours notice when <code>PING</code> times out: <code>check_predecessor()</code> clears the dead pointer, <code>check_successor()</code> moves to the next live finger, and replicas are promoted to primaries.</p>
+                </article>
+            </div>
+
+            <div class="compare">
+                <figure class="shot">
+                    <img src="assets/img/uml-chord-class.png" alt="UML class diagram of ChordNode with its routing state, data store and methods, linked to FingerEntry, Finger, RPCServer, RPCClient, RPCResponse, StabilizerThread and Hash." loading="lazy" width="1539" height="807">
+                    <figcaption>ChordNode class diagram (from the report).</figcaption>
+                </figure>
+                <figure class="shot">
+                    <img src="assets/img/uml-chord-get.png" alt="UML sequence diagram of a Chord GET: the client node hashes the key, forwards FIND_SUCCESSOR through intermediate nodes until the successor is found, then sends GET directly to the successor and returns the value or not_found." loading="lazy" width="1490" height="1422">
+                    <figcaption>Sequence of a <code>GET</code> that isn't stored locally.</figcaption>
+                </figure>
+            </div>
+        </section>
+
+        <!-- ============ KADEMLIA ============ -->
+        <section id="kademlia" class="band">
+            <div class="wrap section">
+                <h2>Chord vs Kademlia</h2>
+                <p class="section-lede">
+                    Daryl built the Kademlia side as an in-process simulation with 160-bit IDs, k = 20 contacts per
+                    bucket and α = 3 parallel queries. I added a CLI and a metrics runner so the two protocols could be run
+                    through the same tests.
+                </p>
+                <div class="table-wrap">
+                    <table class="data">
+                        <thead><tr><th></th><th>Chord</th><th>Kademlia</th></tr></thead>
+                        <tbody>
+                            <tr><th>Topology</th><td>One-dimensional ring, nodes in ID order</td><td>Binary tree of ID prefixes</td></tr>
+                            <tr><th>Distance</th><td>Clockwise distance (asymmetric)</td><td>XOR of IDs (symmetric)</td></tr>
+                            <tr><th>Routing table</th><td><em>m</em> fingers at n + 2<sup>i</sup></td><td>160 k-buckets of up to k = 20 contacts</td></tr>
+                            <tr><th>Lookup</th><td>Sequential: forward to the closest preceding finger</td><td>Iterative and parallel: query the α = 3 closest contacts not yet asked</td></tr>
+                            <tr><th>Hops</th><td>O(log N); each finger jump halves the remaining distance</td><td>O(log N); each round fixes at least one more bit of the ID</td></tr>
+                            <tr><th>Fault tolerance</th><td>Successor list, replicas on successors, periodic stabilization</td><td>Many contacts per bucket, so a lookup can route around a dead node</td></tr>
+                            <tr><th>Weak spot</th><td>Routing depends on a few links being correct. Strong stabilization is O(N²).</td><td>More state per node, and routes are harder to reason about</td></tr>
+                            <tr><th>Our build</th><td>Multi-process over TCP, in C++</td><td>Single-process simulation, in C++</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="compare">
+                    <figure class="shot">
+                        <img src="assets/img/uml-kademlia-class.png" alt="UML class diagram of KademliaNode with its routing table of k-buckets, contacts, data store and the PING, STORE, FIND_NODE and FIND_VALUE operations." loading="lazy" width="1863" height="906">
+                        <figcaption>KademliaNode class diagram.</figcaption>
+                    </figure>
+                    <figure class="shot">
+                        <img src="assets/img/uml-kademlia-find-value.png" alt="UML communication diagram of a Kademlia FIND_VALUE: the client queries three nodes in parallel, which return closer contacts until the value is found." loading="lazy" width="1963" height="392">
+                        <figcaption>Communication diagram for Kademlia's parallel <code>FIND_VALUE</code>.</figcaption>
+                    </figure>
+                </div>
+                <p class="muted">
+                    Our takeaway: both reach O(log N), but Kademlia's parallel queries and redundant buckets make it more
+                    forgiving under heavy churn. Chord's simpler structure makes it easier to prove correct and to
+                    debug, as long as stabilization keeps up.
+                </p>
+            </div>
+        </section>
+
+        <!-- ============ RESULTS ============ -->
+        <section id="results" class="wrap section">
+            <h2>Testing and results</h2>
+            <p class="section-lede">
+                <code>run_chord_metrics.sh</code> launches N headless nodes on one machine, joins them into a ring, writes
+                and reads five keys through random nodes, kills a random node with <code>kill -9</code>, and reads
+                every key again.
+            </p>
+
+            <figure class="wide">
+                <video src="assets/video/metrics-run.mp4" poster="assets/video/metrics-run.jpg" controls muted playsinline loop preload="none" width="1280" height="684" aria-label="Terminal recording, sped up 12 times, of the Chord metrics script launching nodes, joining them, running PUTs and GETs, killing a node, and cleaning up."></video>
+                <figcaption>The metrics script running on 10 and then 100 node processes, recorded for our presentation (12× speed). The “Stabilization took 2 seconds” line came from a fixed wait, not a measurement (<a href="#honest">see below</a>).</figcaption>
+            </figure>
+
+            <div class="stats">
+                <div><span class="num">100</span><span class="lbl">live node processes on one laptop</span></div>
+                <div><span class="num">6–14 ms</span><span class="lbl">typical PUT/GET round trip on localhost</span></div>
+                <div><span class="num">5 / 5</span><span class="lbl">keys still readable after a random node was killed (10 nodes)</span></div>
+                <div><span class="num">6</span><span class="lbl">automated correctness tests</span></div>
+            </div>
+
+            <div class="table-wrap">
+                <table class="data">
+                    <thead><tr><th>Ring size</th><th>PUT</th><th>GET issued 1 s later</th><th>Notes</th></tr></thead>
+                    <tbody>
+                        <tr><th>10 nodes (3 runs)</th><td>9–13 ms <span class="muted small">(two outliers of 2.0 s and 4.7 s on retries)</span></td><td><span class="pill ok">15 / 15</span> 6–13 ms</td><td>All five keys survived the crash test.</td></tr>
+                        <tr><th>50 nodes</th><td>7–11 ms <span class="muted small">(one 2.3 s outlier)</span></td><td><span class="pill warn">3 / 5</span> 6–8 ms</td><td>Two reads returned <code>not_found</code>.</td></tr>
+                        <tr><th>100 nodes</th><td>7–14 ms</td><td><span class="pill warn">4 / 5</span> 8–10 ms</td><td>One read returned <code>not_found</code>. A separate December run averaged 8.2 ms GET and 8.8 ms PUT.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="two-col sub">
+                <div>
+                    <h3 id="honest">Reading the numbers honestly</h3>
+                    <ul class="checklist">
+                        <li><strong>Latency is local.</strong> Everything ran on one machine, so these numbers measure our code and the loopback interface, not real network delay. The AWS EC2 runs from our proposal didn't fit in the semester.</li>
+                        <li><strong>Missed reads at 50 and 100 nodes</strong> came right after many nodes joined in a row. When a forwarded <code>FIND_SUCCESSOR</code> fails, the code falls back to the local successor. With stale fingers, that can name the wrong owner. Reads stayed fast, but correctness under rapid churn was the weak spot.</li>
+                        <li><strong>No fake stabilization numbers.</strong> The December script slept for a fixed time before testing. In June 2026 I replaced that with a real convergence check: every node must report three consecutive clean <code>stabilize()</code> rounds (<code>IS_STABLE</code>).</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3>Correctness test suite (2026)</h3>
+                    <p class="muted">Each test launches real nodes, checks their state through RPCs, and logs any mismatch.</p>
+                    <ul class="checklist">
+                        <li><strong>Single node</strong>: a ring of one stores and serves its own keys.</li>
+                        <li><strong>Two-node routing</strong>: keys land on the right side of a two-node ring.</li>
+                        <li><strong>Multi-node routing</strong>: a GET from any node finds keys stored from any other.</li>
+                        <li><strong>Ownership</strong>: each key sits on <code>successor(hash(key))</code>.</li>
+                        <li><strong>Finger tables</strong>: every finger equals <code>successor(n + 2<sup>i</sup>)</code>.</li>
+                        <li><strong>Ring consistency</strong>: following successors visits every node once, and predecessors agree.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <h3 class="sub">Failure scenarios from the demo</h3>
+            <div class="feature-grid">
+                <article class="card"><h3>Crash mid-run</h3><p>The script kills a random node with <code>kill -9</code>. All five keys were still readable from the surviving nodes, served by the promoted replicas.</p></article>
+                <article class="card"><h3>Suspended node</h3><p>We paused (not killed) one of three CLI nodes. The other two dropped it as predecessor and successor once its PINGs timed out, and the ring stayed connected.</p></article>
+                <article class="card"><h3>Missing key</h3><p>GETs for keys that were never stored route to the correct owner and come back as a clean <code>ERR not_found</code>, not a hang.</p></article>
+            </div>
+        </section>
+
+        <!-- ============ RESEARCH LOG ============ -->
+        <section id="research" class="band">
+            <div class="wrap section">
+                <h2>Research log</h2>
+                <p class="section-lede">
+                    While building, I kept a private Discord channel of notes to myself: screenshots of articles and
+                    AI answers, open problems, and bugs I was chasing. These are the entries that shaped the code.
+                </p>
+                <ol class="log-list">
+                    <li><time datetime="2025-10-21">Oct 21</time><div><strong>Chord vs Kademlia</strong><p>Compared topology (ring vs XOR space), distance metric, routing tables and fault tolerance. This became the framing for our proposal: build Chord first, then compare it with Kademlia.</p></div></li>
+                    <li><time datetime="2025-11-25">Nov 25</time><div><strong>What the first simulator was missing</strong><p>No local check before routing, keys not moved on join, no replication, only clean leaves (no crashes), no latency or churn, no metrics. This became my to-do list.</p></div></li>
+                    <li><time datetime="2025-11-26">Nov 26</time><div><strong>“Stabilization gives you nothing”</strong><p>A centralized, synchronous, failure-free simulator never has stale fingers or half-finished joins. That was the reason to rewrite it with one process per node.</p></div></li>
+                    <li><time datetime="2025-11-26">Nov 26</time><div><strong>Replication: where, how many, how consistent</strong><p>Successors rather than random nodes; r = 3 from 1 − p<sup>r</sup> survival odds; eventual consistency instead of a quorum. Also noted that local replica repair costs O(r·F<sub>affected</sub>) while a global recalculation costs O(N²·F).</p></div></li>
+                    <li><time datetime="2025-11-26">Nov 26</time><div><strong>Stale replicas need garbage collection</strong><p>After a join, nodes that fall out of a key's replica set should drop their copy. Otherwise the replication factor creeps up and old values linger. This was deferred in December and implemented in June 2026.</p></div></li>
+                    <li><time datetime="2025-11-28">Nov 28</time><div><strong>Improvements for later</strong><p>Socket timeouts so a misbehaving node can't block stabilization, a short successor list for failover, and treating every response as untrusted until <code>resp.ok</code> is checked.</p></div></li>
+                    <li><time datetime="2025-11-29">Nov 29</time><div><strong>Stabilize interval and locking</strong><p>Slowed the stabilize loop from 500 ms to 1 s to cut background traffic, and added a separate mutex for the successor list, the finger table and the data store.</p></div></li>
+                    <li><time datetime="2025-12-02">Dec 2</time><div><strong>First 100-node run</strong><p>100 processes, average GET 8.23 ms and PUT 8.82 ms on localhost.</p></div></li>
+                    <li class="bug"><time datetime="2025-12-03">Dec 3 · bug</time><div><strong>Crash leaves a dangling predecessor</strong><p>After a crash, the dead node's predecessor hung and its successor took nil as predecessor. The fix was <code>check_successor()</code>: PING the successor and fail over to the next live finger. I also made a new node start with a nil predecessor and itself as successor.</p></div></li>
+                    <li class="bug"><time datetime="2025-12-04">Dec 4 · bug</time><div><strong>Replication only reached 1 node, not 3</strong><p>Replication used the successor list, which only fills in after several stable rounds, so a fresh ring had one target. This showed up most when the PUT entered at a node that wasn't the owner. I fixed it by having the owner walk the ring with <code>GET_SUCCESSOR</code> to find its r targets on demand.</p></div></li>
+                    <li class="bug"><time datetime="2025-12-04">Dec 4 · open</time><div><strong>Key transfer ignores new replica nodes</strong><p>Joins handed over primaries, but a node that joined <em>inside</em> another key's replica range got nothing. This was solved later by the periodic <code>repair_replicas()</code>.</p></div></li>
+                </ol>
+            </div>
+        </section>
+
+        <!-- ============ TIMELINE ============ -->
+        <section id="timeline" class="wrap section">
+            <h2>Timeline</h2>
+            <ol class="timeline">
+                <li>
+                    <span class="when">Oct 2025</span>
+                    <h3>Proposal</h3>
+                    <p>Daryl and I proposed evaluating scalability and latency in DHTs: build Chord, then Kademlia, then compare them. Our literature review covered Napster, KadRTT, next-generation DHTs (IPFS, Ethereum) and Chord stabilization work like Re-Chord and network scaffolding.</p>
+                </li>
+                <li>
+                    <span class="when">Nov 24 – 26</span>
+                    <h3>Single-process simulator</h3>
+                    <p>Daryl wrote the first in-memory Chord ring. I extended it with key lookup, stabilization, rebalancing, replication and key transfer on join and leave. That made its limits obvious.</p>
+                </li>
+                <li>
+                    <span class="when">Nov 27 – 30</span>
+                    <h3>Rewrite as real processes</h3>
+                    <p>I built the multi-process version: a TCP RPC layer, join and finger tables, PUT/GET, graceful leave, crash handling, replication, mutexes, and a Dockerfile so nodes could run as containers on a shared network.</p>
+                </li>
+                <li>
+                    <span class="when">Dec 1 – 6</span>
+                    <h3>Hardening, Kademlia, metrics, presentation</h3>
+                    <p>I added headless mode (<code>AUTORUN</code>, <code>BOOTSTRAP</code>), retries, socket timeouts and the experiment scripts. I also fixed a ring-formation bug and a deadlock on crash. Daryl delivered Kademlia, and I added its simulator CLI and metrics. We presented on Dec 4 and submitted the report on Dec 5.</p>
+                </li>
+                <li>
+                    <span class="when">Jun 2026</span>
+                    <h3>Coming back to finish it</h3>
+                    <p>I upgraded to C++20, added a readline CLI with <code>fingers</code> and <code>successors</code> commands, made the accept loop handle connections concurrently, and stopped stabilization from running during joins and leaves. I also added the primary/replica flag with replica and primary repair, a real stability check for the metrics, and the correctness test suite.</p>
+                </li>
+            </ol>
+        </section>
+
+        <!-- ============ ROLE ============ -->
+        <section id="role" class="band">
+            <div class="wrap section">
+                <h2>My role</h2>
+                <div class="two-col">
+                    <ul class="role-list">
+                        <li>Designed and wrote the multi-process Chord node: the RPC layer, join/leave/crash handling, stabilization, finger tables, key transfer and successor replication.</li>
+                        <li>Tracked down the concurrency and failure bugs: deadlocks on crash, dangling predecessors, replication stopping at one node, and nodes hanging on dead peers.</li>
+                        <li>Built the Docker setup, the headless mode and the metrics scripts, and later the correctness test suite.</li>
+                        <li>Presented the Chord and Kademlia overviews, stabilization, and the timeout/RPC design.</li>
+                    </ul>
+                    <ul class="role-list">
+                        <li><strong>Daryl Ho</strong> wrote the original single-process Chord simulator and the Kademlia implementation (k-buckets, XOR routing, parallel lookups), and presented the background, design and architecture sections.</li>
+                    </ul>
+                </div>
+                <div class="stats">
+                    <div><span class="num">91</span><span class="lbl">of 94 commits</span></div>
+                    <div><span class="num">~1,100</span><span class="lbl">lines in chord.cpp</span></div>
+                    <div><span class="num">25+</span><span class="lbl">RPC commands</span></div>
+                    <div><span class="num">4</span><span class="lbl">mutexes guarding each node's shared state</span></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ DOCS ============ -->
+        <section id="docs" class="wrap section">
+            <h2>Documents</h2>
+            <div class="docs">
+                <a class="doc" href="https://github.com/joshsj89/csen317-project/blob/main/Project%20Report.pdf" target="_blank" rel="noopener"><strong>Final report</strong><span>Evaluating Scalability and Latency in Distributed Hash Tables · IEEE format, 12 pages</span></a>
+                <a class="doc" href="https://github.com/joshsj89/csen317-project/blob/main/Project%20Presentation.pdf" target="_blank" rel="noopener"><strong>Presentation slides</strong><span>17 slides, December 4, 2025</span></a>
+                <a class="doc" href="https://github.com/joshsj89/csen317-project/blob/main/Project%20Proposal.pdf" target="_blank" rel="noopener"><strong>Project proposal</strong><span>Problem, motivation, prior work and plan · October 2025</span></a>
+                <a class="doc" href="https://github.com/joshsj89/csen317-project"><strong>Source code</strong><span>joshsj89/csen317-project on GitHub (this page lives in <code>docs/</code>)</span></a>
+            </div>
+
+            <h3 class="sub">Working it out by hand</h3>
+            <p class="muted">Before writing the replication and join code, I worked each step out on paper. The animation above follows these pages.</p>
+            <div class="compare">
+                <figure class="shot">
+                    <img src="assets/img/hand-ex1-4.jpg" alt="Handwritten notes: node-E with hash 78 joins the ring and the finger table entries that pointed to 84 are crossed out and replaced with 78; keys 38, 170 and 178 move from node 84 to node 78." loading="lazy" width="1600" height="1000">
+                    <figcaption>node-E (78) joins: finger entries are rewritten and keys 38, 170 and 178 move from node 84.</figcaption>
+                </figure>
+                <figure class="shot">
+                    <img src="assets/img/hand-ex1-5.jpg" alt="Handwritten notes with r = 3: each node is annotated with the keys it stores as primary (green) and as replicas (red)." loading="lazy" width="1600" height="1000">
+                    <figcaption>Replica placement with r = 3. Primaries in green, replicas in red.</figcaption>
+                </figure>
+                <figure class="shot">
+                    <img src="assets/img/hand-ex2-1.jpg" alt="Second handwritten example: four nodes from ports 8080, 7070, 5050 and 9090 hash to 32, 120, 236 and 253, with each node's finger table." loading="lazy" width="1600" height="1000">
+                    <figcaption>A second ring, built from real <code>127.0.0.1:port</code> addresses.</figcaption>
+                </figure>
+                <figure class="shot">
+                    <img src="assets/img/hand-ex2-2.jpg" alt="The same ring after the node on port 7070 (ID 120) leaves: it is crossed out and the finger table entries that pointed to it are corrected in red." loading="lazy" width="1600" height="1000">
+                    <figcaption>The same ring after node 120 leaves, with the affected fingers corrected.</figcaption>
+                </figure>
+            </div>
+
+            <h3 class="sub">References</h3>
+            <ol class="refs">
+                <li>I. Stoica, R. Morris, D. Karger, M. F. Kaashoek and H. Balakrishnan, “Chord: A scalable peer-to-peer lookup service for Internet applications,” <em>ACM SIGCOMM</em>, 2001.</li>
+                <li>H. Huang, H. Wu and G. Wang, “Study of Distributed P2P Information Sharing System,” <em>3rd Int. Symp. on Intelligent Information Technology Application</em>, 2009, pp. 300–303.</li>
+                <li>H. Kanemitsu and H. Nakazato, “KadRTT: Routing with network proximity and uniform ID arrangement in Kademlia,” <em>IFIP Networking</em>, 2021, pp. 1–6.</li>
+                <li>S. Sokoto, M. Król, V. Stankovic and E. Rivière, “Next-Generation Distributed Hash Tables,” <em>CoNEXT Student Workshop</em>, 2023, pp. 29–30.</li>
+                <li>A. Rawat, A. Gupta and R. Gupta, “Chord Protocol: Distributed Hash Table for Peer-to-Peer Networking,” <em>IC3I</em>, 2024, pp. 727–733.</li>
+                <li>S. Kniesburges, A. Koutsopoulos and C. Scheideler, “Re-Chord: a self-stabilizing Chord overlay network,” <em>ACM SPAA</em>, 2011.</li>
+            </ol>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="wrap footer-row">
+            <span>© <span id="year">2026</span> Josh Kindarara</span>
+            <span>
+                <a href="https://joshsj89.github.io">Portfolio</a> ·
+                <a href="https://github.com/joshsj89">GitHub</a>
+            </span>
+        </div>
+    </footer>
+
+    <script src="js/chord-sim.js"></script>
+    <script>
+        document.getElementById('year').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html>
